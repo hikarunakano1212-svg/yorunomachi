@@ -82,6 +82,20 @@ python -m http.server 8000
 - **光**：高層ビルの航空障害灯（赤い点滅）、信号の点灯サイクル、高架を走る電車があります。
 - **軽量化**：街灯などの小物は 120m 四方の区画ごとにまとめています。画面に映らない区画は描画しません。
 
+## Mixamo の人物を使う
+
+Mixamo（https://www.mixamo.com）の人物と動きを変換して、歩行者として使えます。
+
+1. **人物**：Characters から選び、FBX Binary、T-pose でダウンロードします。
+2. **動き**：Animations で「In Place」にチェックを入れ、FBX Binary、Without Skin でダウンロードします。
+   - 使う動き：Walk W/ Briefcase、Running、Idle など
+3. ダウンロードしたファイルを `assets/source/mixamo/` に置き、`python blender/mixamo.py` を実行します。
+   - 骨の名前をそろえ、ポリゴンを約9,000三角形に間引き、テクスチャを1024pxに縮めて、`assets/models/mx_*.glb` を出力します。
+   - ファイル名から動きの種類を判断します（walk / run / idle / walk_turn）。
+   - 前へ進む動き（ルートモーション）は消して、その場で足踏みする動きにします。
+
+`mx_*.glb` があれば、歩行者はそれを使います。無ければ Blender で作った人物を使います。鞄を持って歩く動きの人には、ゲーム側でビジネスバッグを持たせています。
+
 ## 八重洲の地図データを作り直す
 
 ```bash

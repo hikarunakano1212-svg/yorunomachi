@@ -13,6 +13,8 @@ const SKIN = [0xc79c80, 0xd6ad90, 0xb88d70, 0xe0baa0];
 
 const X = new THREE.Vector3(1, 0, 0);
 const Q_UP = new THREE.Quaternion().setFromAxisAngle(X, -0.55), Q_LO = new THREE.Quaternion().setFromAxisAngle(X, -1.5);
+const BAG_GEO = new THREE.BoxGeometry(0.1, 0.3, 0.4);
+const BAG_MAT = new THREE.MeshStandardMaterial({ color: 0x1a1612, roughness: 0.45, metalness: 0.1 });
 let umbrellaGeo = null, umbrellaMat = null, handleMat = null;
 function umbrella() {
   if (!umbrellaGeo) {
@@ -29,8 +31,11 @@ function umbrella() {
 export class Ped {
   constructor(game, x, z) {
     this.game = game;
+    // Mixamo の人物があればそれを使う(実写寄りの顔・服のテクスチャ)
+    const mx = ['mx_ch12', 'mx_ch33'].filter((n) => game.assets.has(n));
+    this.mixamo = mx.length > 0;
     const female = Math.random() < 0.42;
-    const o = game.assets.cloneSkinned(female ? 'person_f' : 'person_m');
+    const o = game.assets.cloneSkinned(this.mixamo ? pick(mx) : (female ? 'person_f' : 'person_m'));
     const jacket = pick(female ? JACKETS_F : JACKETS_M);
     const skin = pick(SKIN);
     o.traverse((m) => {
@@ -58,11 +63,20 @@ export class Ped {
     this.current = null;
     this.play('walk');
     this.mixer.update(rand(0, 2));
-    this.bones = { armUp: o.getObjectByName('b_elbow_L'), armLo: o.getObjectByName('b_wrist_L') };
+    this.bones = this.mixamo
+      ? { armUp: o.getObjectByName('RightArm'), armLo: o.getObjectByName('RightForeArm'), hand: o.getObjectByName('LeftHand') }
+      : { armUp: o.getObjectByName('b_elbow_L'), armLo: o.getObjectByName('b_wrist_L') };
     const s = rand(0.93, 1.07) * (female ? 0.97 : 1);
     o.scale.setScalar(s);
     this.height = 1.75 * s;
-    if (Math.random() < 0.6) {
+    if (this.mixamo && this.bones.hand && Math.random() < 0.7) {
+      // 鞄を持って歩く動きなので、手にビジネスバッグを持たせる
+      const bag = new THREE.Mesh(BAG_GEO, BAG_MAT);
+      bag.castShadow = true; bag.layers.set(1);
+      bag.position.set(0, 18, 4); // 骨の単位は cm
+      bag.scale.setScalar(100);
+      this.bones.hand.add(bag);
+    } else if (Math.random() < 0.6) {
       this.umbrella = umbrella();
       this.umbrella.position.set(0.16, 1.08, 0.18);
       this.umbrella.traverse((m) => m.layers.set(1));
@@ -149,7 +163,7 @@ export class Ped {
       this.slide[0] *= Math.exp(-4 * dt); this.slide[1] *= Math.exp(-4 * dt);
       this.game.city.colliders.resolve(this.pos, 0.3);
       this.obj.position.set(this.pos.x, this.game.groundY(this.pos.x, this.pos.z) + 0.1 * t, this.pos.z);
-      this.obj.rotation.set(0, this.fallDir, 0);
+      this.obj.rotation.set(0, this.fallDir + (this.mixamo ? Math.PI : 0), 0);
       this.obj.rotateX(-Math.PI / 2 * (1 - Math.pow(1 - t, 3)));
       this.play('idle', 0.1);
       this.mixer.update(dt * 0.2);
@@ -194,7 +208,7 @@ export class Ped {
       this.bones.armLo.quaternion.multiply(Q_LO);
     }
     this.obj.position.set(this.pos.x, this.pos.y, this.pos.z);
-    this.obj.rotation.set(0, this.yaw, 0);
+    this.obj.rotation.set(0, this.yaw + (this.mixamo ? Math.PI : 0), 0); // Mixamo の人物は +Z が正面
   }
 
   remove() { this.game.scene.remove(this.obj); this.dead = true; }

@@ -1,3 +1,6 @@
 __pycache__/
 *.blend1
 dist/
+
+# Mixamo の人物の元データ(大きいので入れない。変換後の assets/models/mx_*.glb を使う)
+assets/source/mixamo/*_nonPBR.fbx

@@ -5,11 +5,23 @@ import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 
 const NAMES = ['car_sedan', 'car_taxi', 'car_kei', 'car_van', 'car_truck', 'car_bus', 'car_police', 'vending', 'lantern', 'cone',
   'person_m', 'person_f', 'pistol', 'signal', 'tree', 'lamp'];
+// Mixamo の人物(あれば使う。無ければ Blender 製の人物で代用)
+const OPTIONAL = ['mx_ch12', 'mx_ch33'];
 
 export async function loadAssets(base = 'assets/models/', onProgress = () => {}) {
   const loader = new GLTFLoader();
   const store = {};
   let done = 0;
+  await Promise.all(OPTIONAL.map(async (n) => {
+    try {
+      const gltf = window.__MODELS ? (window.__MODELS[n] ? await loader.parseAsync(JSON.stringify(window.__MODELS[n]), '') : null)
+        : await loader.loadAsync(`${base}${n}.glb`);
+      if (!gltf) return;
+      gltf.scene.userData.animations = gltf.animations;
+      gltf.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; } });
+      store[n] = gltf.scene;
+    } catch { /* 無ければ使わない */ }
+  }));
   await Promise.all(NAMES.map(async (n) => {
     // 単体HTML版ではモデルが window.__MODELS に埋め込まれている
     const gltf = window.__MODELS
@@ -33,6 +45,7 @@ export async function loadAssets(base = 'assets/models/', onProgress = () => {})
   }));
   return {
     get: (n) => store[n],
+    has: (n) => !!store[n],
     // 骨格付きモデルの複製(骨ごと複製する)
     cloneSkinned(n) {
       const c = skeletonClone(store[n]);
