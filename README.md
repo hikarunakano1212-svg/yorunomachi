@@ -39,7 +39,7 @@ python -m http.server 8000
 | ラジオ局を変える | Q |
 | 地図・一時停止 | M |
 
-地図データ: © OpenStreetMap contributors, Overture Maps Foundation（ODbL / CDLA Permissive 2.0）
+地図データ: © OpenStreetMap contributors, Overture Maps Foundation（ODbL / CDLA Permissive 2.0）　人物と動き: Mixamo　拳銃・フェンス: Poly Haven（CC0）
 
 ### 仕事
 
@@ -95,6 +95,20 @@ Mixamo（https://www.mixamo.com）の人物と動きを変換して、歩行者�
    - 前へ進む動き（ルートモーション）は消して、その場で足踏みする動きにします。
 
 `mx_*.glb` があれば、歩行者はそれを使います。無ければ Blender で作った人物を使います。鞄を持って歩く動きの人には、ゲーム側でビジネスバッグを持たせています。
+
+## Poly Haven の素材を使う
+
+Poly Haven（https://polyhaven.com、CC0）の `.blend` を `blender/polyhaven.py` で glb に変換しています。
+
+- **拳銃**：Service Pistol。一人称の拳銃として使っています。照準器の高さは自動で合わせます。
+- **金網フェンス**：Modular Chainlink Fence。街の空き地に置いた工事現場の囲いに使っています。
+
+```bash
+python blender/polyhaven.py <.blend> ph_pistol service_pistol_pistol_a,service_pistol_slide_a,service_pistol_hammer_a,service_pistol_trigger_a 2048
+python blender/polyhaven.py <.blend> ph_fence modular_chainlink_fence_double,modular_chainlink_fence_post 1024
+```
+
+テクスチャは WebP に縮めます（拳銃は 23MB → 1.7MB）。
 
 ## 八重洲の地図データを作り直す
 

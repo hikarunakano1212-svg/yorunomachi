@@ -622,6 +622,7 @@ export async function buildYaesu(game, mapData) {
     return { x, z, yaw };
   });
   group.add(buildFences(M.fences));
+  if (assets.has?.('ph_fence')) buildSites(group, assets, col, M);
   for (const s of M.signs) {
     const t = T.makeRoadSign(s.t);
     // 表裏2枚(裏から見ても鏡文字にならない)+支柱
@@ -905,6 +906,73 @@ function buildSignals(group, src, list) {
       for (const im of Object.values(lamps)) im.instanceColor.needsUpdate = true;
     },
   };
+}
+
+// 工事現場: Poly Haven の金網フェンスで囲った空き地(カラーコーン・看板・資材)
+function buildSites(group, assets, col, M) {
+  const src = assets.get('ph_fence');
+  const section = src.getObjectByName('modular_chainlink_fence_double');
+  const post = src.getObjectByName('modular_chainlink_fence_post');
+  if (!section) return;
+  src.traverse((o) => { if (o.isMesh && /wire/.test(o.material.name)) { o.material.alphaTest = 0.4; o.material.side = THREE.DoubleSide; o.material.transparent = false; } });
+  const roads = new RoadGraph(M.roads);
+  const secs = [], posts = [], cones = [], stacks = [];
+  const SEG = 1.91;
+  let sites = 0;
+  for (let tries = 0; tries < 400 && sites < 4; tries++) {
+    const x = rand(-M.half + 40, M.half - 40), z = rand(-M.half + 40, M.half - 40);
+    const W = randi(4, 7) * SEG, D = randi(3, 5) * SEG, yaw = rand(0, Math.PI);
+    if (col.inside(x, z, Math.hypot(W, D) / 2 + 2)) continue;
+    const r = roads.nearestEdge(x, z);
+    if (!r || r.d < r.e.w / 2 + Math.hypot(W, D) / 2 + 3 || r.d > 45) continue; // 車道に面した空き地
+    sites++;
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const P = (lx, lz) => [x + lx * c + lz * s, z - lx * s + lz * c];
+    const corners = [[-W / 2, -D / 2], [W / 2, -D / 2], [W / 2, D / 2], [-W / 2, D / 2]];
+    for (let k = 0; k < 4; k++) {
+      const [ax, az] = corners[k], [bx, bz] = corners[(k + 1) % 4];
+      const len = Math.hypot(bx - ax, bz - az), n = Math.round(len / SEG);
+      const eyaw = yaw + Math.atan2(-(bz - az), bx - ax);
+      for (let i = 0; i < n; i++) {
+        if (k === 0 && i === Math.floor(n / 2)) continue; // 出入口
+        const t = (i + 0.5) / n;
+        const [px, pz] = P(ax + (bx - ax) * t, az + (bz - az) * t);
+        secs.push({ x: px, z: pz, yaw: eyaw });
+      }
+      const [px, pz] = P(ax, az);
+      posts.push({ x: px, z: pz });
+      const [qa, qb] = [P(ax, az), P(bx, bz)];
+      col.addSeg(qa[0], qa[1], qb[0], qb[1], 'fence');
+    }
+    for (let i = 0; i < 5; i++) { const [px, pz] = P(rand(-W / 2, W / 2), -D / 2 - rand(0.6, 1.4)); cones.push({ x: px, z: pz, yaw: rand(0, 6) }); }
+    for (let i = 0; i < 3; i++) { const [px, pz] = P(rand(-W / 3, W / 3), rand(-D / 4, D / 4)); stacks.push({ x: px, z: pz, yaw: yaw + rand(-0.3, 0.3), s: rand(0.8, 1.3) }); }
+    // 工事中の看板
+    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 320;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#f2f2ee'; g.fillRect(0, 0, 256, 320);
+    for (let yy = 0; yy < 40; yy += 20) { g.fillStyle = yy % 40 ? '#111' : '#f5c400'; }
+    g.fillStyle = '#f5c400'; g.fillRect(0, 0, 256, 40); g.fillStyle = '#111';
+    for (let xx = -40; xx < 256; xx += 40) { g.beginPath(); g.moveTo(xx, 40); g.lineTo(xx + 20, 40); g.lineTo(xx + 40, 0); g.lineTo(xx + 20, 0); g.fill(); }
+    g.fillStyle = '#c4161c'; g.font = '900 64px "Zen Kaku Gothic New", sans-serif'; g.textAlign = 'center';
+    g.fillText('工事中', 128, 120);
+    g.fillStyle = '#222'; g.font = '700 22px "Zen Kaku Gothic New", sans-serif';
+    g.fillText('ご迷惑をおかけします', 128, 175); g.fillText('八重洲二丁目 再開発', 128, 215);
+    g.fillText('施工 ヤマ建設', 128, 255);
+    const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace;
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.5), new THREE.MeshStandardMaterial({ map: tx, roughness: 0.6 }));
+    const [bx2, bz2] = P(W / 4, -D / 2 - 0.08);
+    board.position.set(bx2, 1.2, bz2); board.rotation.y = yaw + Math.PI;
+    group.add(board);
+  }
+  group.add(instanceAsset(section, secs, true), instanceAsset(post ?? section, posts, true));
+  if (assets.get('cone')) group.add(instanceAsset(assets.get('cone'), cones));
+  const sg = new THREE.BoxGeometry(2.6, 0.5, 1.1); sg.translate(0, 0.25, 0);
+  const sm = new THREE.InstancedMesh(sg, new THREE.MeshStandardMaterial({ color: 0x7c6a52, roughness: 0.9 }), stacks.length);
+  const Mx = new THREE.Matrix4(), Q = new THREE.Quaternion(), Y = new THREE.Vector3(0, 1, 0);
+  stacks.forEach((t, i) => { Mx.compose(new THREE.Vector3(t.x, 0, t.z), Q.setFromAxisAngle(Y, t.yaw), new THREE.Vector3(t.s, t.s, t.s)); sm.setMatrixAt(i, Mx); });
+  sm.castShadow = sm.receiveShadow = true;
+  group.add(sm);
+  group.userData.sites = sites;
 }
 
 // 歩道のガードレール(白い横柵)

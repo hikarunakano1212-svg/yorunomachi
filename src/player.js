@@ -27,6 +27,16 @@ export class Player {
     this.gunHolder = new THREE.Group();
     this.gunHolder.add(this.gun);
     this.gun.scale.setScalar(0.85);
+    // Poly Haven の実物スキャン風の拳銃があれば差し替える(照準器の高さと後端を元の拳銃に合わせる)
+    if (game.assets.has('ph_pistol')) {
+      const ph = game.assets.clone('ph_pistol');
+      const old = this.gun.getObjectByName('GunMesh');
+      if (old) old.visible = false;
+      const box = new THREE.Box3().setFromObject(ph);
+      ph.position.set(-(box.min.x + box.max.x) / 2, 0.079 - box.max.y, 0.08 - box.max.z);
+      ph.traverse((o) => { if (o.isMesh) { o.frustumCulled = false; o.material = o.material.clone(); o.material.envMapIntensity = 1.4; } });
+      this.gun.add(ph);
+    }
     // 路面反射に映り込まないようレイヤー1へ
     this.gun.traverse((o) => o.layers.set(1));
     cam.add(this.gunHolder);

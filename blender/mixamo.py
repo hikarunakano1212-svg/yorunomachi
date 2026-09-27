@@ -22,7 +22,8 @@ SRC = sys.argv[-1] if len(sys.argv) > 1 and os.path.isdir(sys.argv[-1]) else os.
 OUT = os.path.join(ROOT, 'assets', 'models')
 TARGET_TRIS = 9000
 TEX = 1024
-ANIM_NAMES = {'walk w_ briefcase': 'walk', 'walking': 'walk', 'running': 'run', 'idle': 'idle', 'walking left turn': 'walk_turn'}
+ANIM_NAMES = {'walk w_ briefcase': 'walk', 'walking': 'walk', 'running': 'run', 'running 1': 'run2', 'idle': 'idle',
+              'walking left turn': 'walk_turn', 'standing yell': 'yell'}
 PREFIX = re.compile(r'mixamorig\d*:')
 
 

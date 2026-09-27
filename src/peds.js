@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { offsetLine, trimLine } from './yaesu.js';
 import { makeFabricNormal } from './textures.js';
+import { MX_PEOPLE } from './assets.js';
 const CURB = 0;
 import { rand, randi, pick, clamp, damp, wrapAngle } from './util.js';
 
@@ -32,10 +33,12 @@ export class Ped {
   constructor(game, x, z) {
     this.game = game;
     // Mixamo の人物があればそれを使う(実写寄りの顔・服のテクスチャ)
-    const mx = ['mx_ch12', 'mx_ch33'].filter((n) => game.assets.has(n));
+    const mx = MX_PEOPLE.filter((n) => game.assets.has(n));
     this.mixamo = mx.length > 0;
     const female = Math.random() < 0.42;
-    const o = game.assets.cloneSkinned(this.mixamo ? pick(mx) : (female ? 'person_f' : 'person_m'));
+    const kind = this.mixamo ? pick(mx) : (female ? 'person_f' : 'person_m');
+    const o = game.assets.cloneSkinned(kind);
+    this.kind = kind;
     const jacket = pick(female ? JACKETS_F : JACKETS_M);
     const skin = pick(SKIN);
     o.traverse((m) => {
@@ -59,7 +62,7 @@ export class Ped {
     this.mixer = new THREE.AnimationMixer(o);
     const clip = (name) => THREE.AnimationClip.findByName(o.userData.animations, name);
     this.actions = {};
-    for (const k of ['walk', 'run', 'idle']) { const c = clip(k); if (c) this.actions[k] = this.mixer.clipAction(c); }
+    for (const k of ['walk', 'run', 'run2', 'idle', 'yell']) { const c = clip(k); if (c) this.actions[k] = this.mixer.clipAction(c); }
     this.current = null;
     this.play('walk');
     this.mixer.update(rand(0, 2));
@@ -67,20 +70,28 @@ export class Ped {
       ? { armUp: o.getObjectByName('RightArm'), armLo: o.getObjectByName('RightForeArm'), hand: o.getObjectByName('LeftHand') }
       : { armUp: o.getObjectByName('b_elbow_L'), armLo: o.getObjectByName('b_wrist_L') };
     const s = rand(0.93, 1.07) * (female ? 0.97 : 1);
-    o.scale.setScalar(s);
+    o.scale.setScalar(s * (o.userData.heightScale ?? 1));
     this.height = 1.75 * s;
     if (this.mixamo && this.bones.hand && Math.random() < 0.7) {
       // 鞄を持って歩く動きなので、手にビジネスバッグを持たせる
       const bag = new THREE.Mesh(BAG_GEO, BAG_MAT);
       bag.castShadow = true; bag.layers.set(1);
-      bag.position.set(0, 18, 4); // 骨の単位は cm
-      bag.scale.setScalar(100);
       this.bones.hand.add(bag);
+      this.bag = bag;
     } else if (Math.random() < 0.6) {
       this.umbrella = umbrella();
       this.umbrella.position.set(0.16, 1.08, 0.18);
       this.umbrella.traverse((m) => m.layers.set(1));
       o.add(this.umbrella);
+    }
+    // 持ち物(傘・鞄)は人物の単位に関係なく実寸になるよう、親の拡大率を打ち消す
+    o.updateMatrixWorld(true);
+    const ws = new THREE.Vector3();
+    if (this.umbrella) { const k = 1 / o.scale.x; this.umbrella.scale.setScalar(k); this.umbrella.position.multiplyScalar(k); }
+    if (this.bag) {
+      this.bag.parent.getWorldScale(ws);
+      const k = 1 / ws.x;
+      this.bag.scale.setScalar(k); this.bag.position.set(0, 0.18 * k, 0.04 * k);
     }
     game.scene.add(o);
     this.pos = new THREE.Vector3(x, CURB, z);
@@ -142,7 +153,13 @@ export class Ped {
     const d = Math.hypot(this.pos.x - x, this.pos.z - z);
     this.fear = Math.max(this.fear, amount);
     this.fleeFrom = [x, z];
-    if (this.state !== 'flee') { this.state = 'flee'; if (Math.random() < 0.4) this.game.audio.scream(this.pos, d); }
+    if (this.state !== 'flee') {
+      this.state = 'flee';
+      if (Math.random() < 0.4) this.game.audio.scream(this.pos, d);
+      // 驚いて一瞬叫んでから逃げる。走り方は2種類から
+      this.yellT = this.actions.yell && d > 6 ? rand(0.6, 1.2) : 0;
+      this.runAnim = this.actions.run2 && Math.random() < 0.5 ? 'run2' : 'run';
+    }
   }
 
   knock(dirX, dirZ, force) {
@@ -180,6 +197,7 @@ export class Ped {
       const l = Math.hypot(ax, az) || 1;
       tx = this.pos.x + (ax / l) * 10; tz = this.pos.z + (az / l) * 10;
       spd = 4.6;
+      if (this.yellT > 0) { this.yellT -= dt; spd = 0.001; }
     } else {
       [tx, tz] = this.target;
       if (Math.hypot(tx - this.pos.x, tz - this.pos.z) < 1.0) {
@@ -197,8 +215,8 @@ export class Ped {
     this.pos.y = this.game.groundY(this.pos.x, this.pos.z);
     // 骨格アニメーション: 速さに合わせて歩き/走りを切り替え、足の運びを合わせる
     const running = this.state === 'flee';
-    this.play(running ? 'run' : 'walk');
-    if (this.current) this.current.timeScale = running ? spd / 4.2 : spd / 1.3;
+    this.play(this.yellT > 0 ? 'yell' : running ? (this.runAnim ?? 'run') : 'walk', 0.15);
+    if (this.current) this.current.timeScale = this.yellT > 0 ? 1 : running ? spd / 4.2 : spd / 1.3;
     this.mixer.update(dt);
     if (this.umbrella && running) this.umbrella.visible = false;
     // 傘を持つ腕を上げる(アニメーションの上から上書き)

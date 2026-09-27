@@ -6,7 +6,8 @@ import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 const NAMES = ['car_sedan', 'car_taxi', 'car_kei', 'car_van', 'car_truck', 'car_bus', 'car_police', 'vending', 'lantern', 'cone',
   'person_m', 'person_f', 'pistol', 'signal', 'tree', 'lamp'];
 // Mixamo の人物(あれば使う。無ければ Blender 製の人物で代用)
-const OPTIONAL = ['mx_ch12', 'mx_ch33'];
+export const MX_PEOPLE = ['mx_ch12', 'mx_ch23', 'mx_ch33', 'mx_remy'];
+const OPTIONAL = [...MX_PEOPLE, 'ph_pistol', 'ph_fence'];
 
 export async function loadAssets(base = 'assets/models/', onProgress = () => {}) {
   const loader = new GLTFLoader();
@@ -19,6 +20,12 @@ export async function loadAssets(base = 'assets/models/', onProgress = () => {})
       if (!gltf) return;
       gltf.scene.userData.animations = gltf.animations;
       gltf.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; } });
+      // 人物は元データごとに単位が違うので、身長を 1.75m にそろえる倍率を覚えておく
+      if (MX_PEOPLE.includes(n)) {
+        gltf.scene.updateMatrixWorld(true);
+        const h = new THREE.Box3().setFromObject(gltf.scene).getSize(new THREE.Vector3()).y;
+        gltf.scene.userData.heightScale = h > 0.1 ? 1.75 / h : 1;
+      }
       store[n] = gltf.scene;
     } catch { /* 無ければ使わない */ }
   }));
@@ -51,6 +58,7 @@ export async function loadAssets(base = 'assets/models/', onProgress = () => {})
       const c = skeletonClone(store[n]);
       c.traverse((o) => { if (o.isMesh) o.material = o.material.clone(); });
       c.userData.animations = store[n].userData.animations;
+      c.userData.heightScale = store[n].userData.heightScale ?? 1;
       return c;
     },
     clone: (n) => store[n].clone(true),
