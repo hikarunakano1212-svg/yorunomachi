@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>夜ノ街</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Yuji+Syuku&family=Zen+Kaku+Gothic+New:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/addons/": "./vendor/three/addons/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div id="topright">
+    <div id="clock">23:00</div>
+    <div id="money">¥0</div>
+    <div id="wanted"></div>
+  </div>
+  <div id="topleft">
+    <div id="mission" class="off"><div class="m-title"></div><div class="m-body"></div><div class="m-timer"></div></div>
+  </div>
+  <div id="crosshair"></div>
+  <div id="hitmarker"></div>
+  <div id="prompt"></div>
+  <div id="subtitle"></div>
+  <div id="toasts"></div>
+  <div id="bottomleft">
+    <canvas id="minimap" width="220" height="220"></canvas>
+    <div id="bars">
+      <div class="bar"><span>体力</span><i id="hp"></i></div>
+      <div class="bar car"><span>車体</span><i id="carhp"></i></div>
+    </div>
+    <div id="area"></div>
+  </div>
+  <div id="bottomright">
+    <div id="speed"><b>0</b><small>km/h</small></div>
+    <div id="radio"></div>
+    <div id="ammo"><b>12</b><small>/ 48</small></div>
+  </div>
+  <div id="arrest"><div class="label">逮捕まで</div><div class="track"><i></i></div></div>
+  <div id="vignette"></div>
+</div>
+
+<!-- 大きな演出テキスト(逮捕/病院送り/ミッション達成) -->
+<div id="bigtext" class="hidden"><div class="main"></div><div class="sub"></div></div>
+
+<!-- タイトル -->
+<div id="title">
+  <div class="title-inner">
+    <div class="kicker">OPEN WORLD · FIRST PERSON · TOKYO YAESU</div>
+    <h1><span>夜</span><span class="no">ノ</span><span>街</span></h1>
+    <div class="en">YORU NO MACHI</div>
+    <p class="tagline">東京・八重洲。借金 三百万円。期限は、夜明けまで。</p>
+    <div class="mode"><button data-mode="night" class="on">夜・雨</button><button data-mode="day">昼・曇り雨</button></div>
+    <button id="start">街へ出る</button>
+    <div class="loading" id="loading">アセット読み込み中…</div>
+    <div class="controls">
+      <div><kbd>WASD</kbd>移動</div><div><kbd>マウス</kbd>視点</div><div><kbd>Shift</kbd>走る</div>
+      <div><kbd>F</kbd>車に乗る/降りる</div><div><kbd>左クリック</kbd>撃つ</div><div><kbd>右クリック</kbd>照準をのぞく</div><div><kbd>R</kbd>リロード</div>
+      <div><kbd>Space</kbd>ジャンプ / ハンドブレーキ</div><div><kbd>Q</kbd>ラジオ</div><div><kbd>M</kbd>地図</div>
+    </div>
+  </div>
+</div>
+
+<!-- ポーズ / 全体地図 -->
+<div id="pause" class="hidden">
+  <div class="panel">
+    <h2>一時停止</h2>
+    <canvas id="bigmap" width="560" height="560"></canvas>
+    <div class="legend"><span class="lg job"></span>仕事 <span class="lg shop"></span>解体屋 <span class="lg koban"></span>交番 <span class="lg you"></span>現在地</div>
+    <p class="hint">クリックで再開</p>
+  </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
