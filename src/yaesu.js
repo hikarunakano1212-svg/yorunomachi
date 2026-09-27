@@ -28,7 +28,7 @@ export async function loadPbr() {
     const src = window.__TEX?.[`${n}_${k}`] ?? `assets/tex/${n}_${k}.jpg`;
     const t = await loader.loadAsync(src);
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.anisotropy = 8;
+    t.anisotropy = 16;
     if (k === 'albedo') t.colorSpace = THREE.SRGBColorSpace;
     (out[n] ??= {})[k] = t;
   })));
@@ -293,8 +293,30 @@ export async function buildYaesu(game, mapData) {
   const roofBoxes = [], aviation = [];
   const quad = (G, a, b, c, d, u0, v0, u1, v1) => { G.pos.push(...a, ...b, ...c, ...a, ...c, ...d); G.uv.push(u0, v0, u1, v0, u1, v1, u0, v0, u1, v1, u0, v1); };
 
+  const granRoofs = [];
+  const parapet = { pos: [], uv: [] };
   for (const b of M.buildings) {
     const P = pts2(b.p);
+    if (b.s === 'granroof') { granRoofs.push(P); col.addPoly(b.p, 'building'); continue; }
+    // 屋上の縁の立ち上がり(パラペット): 外側と内側の2面 + 天端
+    if (b.s !== 'canopy' && b.h > 8) {
+      const cx0 = P.reduce((t, p) => t + p[0], 0) / P.length, cz0 = P.reduce((t, p) => t + p[1], 0) / P.length;
+      const inset = (p) => { const dx = cx0 - p[0], dz = cz0 - p[1], l = Math.hypot(dx, dz) || 1; return [p[0] + dx / l * 0.3, p[1] + dz / l * 0.3]; };
+      const ph = b.h > 60 ? 2.2 : 1.1;
+      for (let i = 0; i < P.length; i++) {
+        const a0 = P[i], c0 = P[(i + 1) % P.length], ai = inset(a0), ci = inset(c0);
+        const L = Math.hypot(c0[0] - a0[0], c0[1] - a0[1]);
+        const q = (A, B, C, D) => { parapet.pos.push(...A, ...B, ...C, ...A, ...C, ...D); parapet.uv.push(0, 0, L / 4, 0, L / 4, ph / 4, 0, 0, L / 4, ph / 4, 0, ph / 4); };
+        q([c0[0], b.h, c0[1]], [a0[0], b.h, a0[1]], [a0[0], b.h + ph, a0[1]], [c0[0], b.h + ph, c0[1]]);
+        q([ai[0], b.h, ai[1]], [ci[0], b.h, ci[1]], [ci[0], b.h + ph, ci[1]], [ai[0], b.h + ph, ai[1]]);
+        q([a0[0], b.h + ph, a0[1]], [ai[0], b.h + ph, ai[1]], [ci[0], b.h + ph, ci[1]], [c0[0], b.h + ph, c0[1]]);
+      }
+      // 高層ビルの屋上には機械室(ペントハウス)
+      if (b.h > 60) {
+        const xs = P.map((p) => p[0]), zs = P.map((p) => p[1]);
+        roofBoxes.push({ x: cx0, y: b.h + 4, z: cz0, sx: (Math.max(...xs) - Math.min(...xs)) * 0.4, sy: 8, sz: (Math.max(...zs) - Math.min(...zs)) * 0.4 });
+      }
+    }
     const variant = randi(0, (facadeVariants[b.s] ?? 1) - 1);
     const key = `${b.s}:${variant}`;
     const G = (geos[key] ??= { pos: [], uv: [], style: b.s, variant });
@@ -506,6 +528,11 @@ export async function buildYaesu(game, mapData) {
     mesh.castShadow = true; mesh.receiveShadow = true;
     group.add(mesh); buildingMeshes.push(mesh);
   }
+  {
+    const pm = new THREE.MeshStandardMaterial({ map: pbr.concrete.albedo, normalMap: pbr.concrete.normal, color: 0xb8b6b0, roughness: 0.9, side: THREE.DoubleSide });
+    const m = new THREE.Mesh(mk(parapet), pm); m.castShadow = m.receiveShadow = true; group.add(m);
+  }
+  for (const P of granRoofs) group.add(makeGranRoof(P));
   const storeMat = new THREE.MeshStandardMaterial({ map: store.map, emissiveMap: store.emissive, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 0.12, metalness: 0.15, envMapIntensity: 1.2 });
   const storeMesh = new THREE.Mesh(mk(storeG), storeMat);
   storeMesh.receiveShadow = true;
@@ -622,6 +649,28 @@ export async function buildYaesu(game, mapData) {
     glowSprites.push({ x: fx, y: 8.8, z: fz, s: 3.5, c: 0xfff0dd, o: 0.5 });
     col.addBox(l.x, l.z, 0.2, 0.2, 0, 'pole');
   }
+  if (M.hedges?.length) {
+    // 低木の植え込み(ツツジの刈り込み): 凹凸のある箱を緑の帯に
+    const hg = new THREE.BoxGeometry(3.6, 0.8, 1.1, 8, 3, 3);
+    const pa = hg.attributes.position;
+    for (let i = 0; i < pa.count; i++) {
+      const x = pa.getX(i), y = pa.getY(i), z = pa.getZ(i);
+      const n = Math.sin(x * 5.1 + z * 3.7) * 0.05 + Math.sin(x * 11.3 - y * 7.1) * 0.035;
+      pa.setXYZ(i, x, y + (y > 0 ? n : 0), z + Math.sign(z) * n);
+    }
+    hg.translate(0, 0.4, 0); hg.computeVertexNormals();
+    const curbG = new THREE.BoxGeometry(3.8, 0.3, 1.3); curbG.translate(0, 0.15, 0);
+    const leaf = new THREE.MeshStandardMaterial({ color: 0x2f5a2a, roughness: 0.95, flatShading: true });
+    const stone = new THREE.MeshStandardMaterial({ color: 0x9c988e, roughness: 0.85 });
+    const list = M.hedges.map(([x, z, yaw]) => ({ x, z, yaw }));
+    const Mx = new THREE.Matrix4(), Q = new THREE.Quaternion(), Y = new THREE.Vector3(0, 1, 0);
+    for (const [geo, mat, y] of [[hg, leaf, 0.22], [curbG, stone, 0]]) {
+      const im = new THREE.InstancedMesh(geo, mat, list.length);
+      list.forEach((t, i) => { Mx.compose(new THREE.Vector3(t.x, y, t.z), Q.setFromAxisAngle(Y, t.yaw + Math.PI / 2), new THREE.Vector3(1, 1, 1)); im.setMatrixAt(i, Mx); });
+      im.castShadow = im.receiveShadow = true; group.add(im);
+    }
+    for (const t of list) col.addBox(t.x, t.z, 0.65, 1.9, t.yaw + Math.PI / 2, 'hedge');
+  }
   group.add(instanceAsset(assets.get('tree'), M.trees.map(([x, z, s]) => ({ x, z, s, yaw: rand(0, 6.28) })), true));
   for (const [x, z] of M.trees) col.addBox(x, z, 0.3, 0.3, 0, 'tree');
   const signalObjs = buildSignals(group, assets.get('signal'), M.signals);
@@ -678,12 +727,12 @@ export async function buildYaesu(game, mapData) {
   // ---------- 地面(濡れた路面: 反射 + 影 + 焼き込みライトマップ)
   const size = HALF * 2 + 400;
   const [groundImg] = await Promise.all([loadImage(mapData.ground)]);
-  const maskTex = new THREE.Texture(groundImg); maskTex.flipY = false; maskTex.needsUpdate = true; maskTex.anisotropy = 8;
+  const maskTex = new THREE.Texture(groundImg); maskTex.flipY = false; maskTex.needsUpdate = true; maskTex.anisotropy = 16;
   const lightmap = T.makeGroundLightmap(2048, HALF * 2, glowLights.map((l) => ({ ...l, x: l.x + HALF, z: l.z + HALF })));
   lightmap.flipY = false; lightmap.needsUpdate = true;
   const planeGeo = new THREE.PlaneGeometry(size, size);
   const reflector = new Reflector(planeGeo, {
-    textureWidth: Math.floor(innerWidth * 0.5), textureHeight: Math.floor(innerHeight * 0.5), multisample: 0, clipBias: 0.003,
+    textureWidth: Math.floor(innerWidth * Math.min(devicePixelRatio, 1.5)), textureHeight: Math.floor(innerHeight * Math.min(devicePixelRatio, 1.5)), multisample: 4, clipBias: 0.003,
     shader: { uniforms: { color: { value: null }, tDiffuse: { value: null }, textureMatrix: { value: null } },
       vertexShader: 'void main(){ gl_Position = vec4(2.0); }', fragmentShader: 'void main(){ discard; }' },
   });
@@ -735,7 +784,21 @@ export async function buildYaesu(game, mapData) {
         base = mix(base, asph, gRoad);
         base = mix(base, vec3(0.62, 0.62, 0.58), clamp(white - yellow, 0.0, 1.0) * 0.25);
         diffuseColor.rgb = base;
-        gMark = max(white, yellow);`)
+        gMark = max(white, yellow);
+        // 補修跡(四角いつぎはぎ)
+        vec2 pc = floor(vW.xz / 6.0);
+        float patchM = step(0.82, h21(pc)) * step(abs(fract(vW.x / 6.0) - 0.5), 0.3) * step(abs(fract(vW.z / 6.0) - 0.5), 0.22);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.72, patchM * gRoad * (1.0 - gMark));
+        // マンホール(直径 60cm の鋳鉄の蓋、格子模様)
+        vec2 mc = floor(vW.xz / 14.0);
+        vec2 mp = (mc + vec2(h21(mc), h21(mc + 3.3)) * 0.8 + 0.1) * 14.0;
+        float md = length(vW.xz - mp);
+        float mh = step(md, 0.32) * step(0.55, h21(mc + 7.0)) * gRoad;
+        float grid = step(0.5, fract((vW.x + vW.z) * 6.0)) * 0.3 + step(0.29, md) * 0.4;
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.09, 0.085, 0.08) + grid * 0.06, mh);
+        // タイヤの通り道はわずかに黒く、油じみ
+        float oil = smoothstep(0.55, 0.8, texture2D(uGrain, vW.xz * 0.07 + 0.7).r);
+        diffuseColor.rgb *= 1.0 - oil * 0.25 * gRoad * (1.0 - gMark);`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         float rAs = texture2D(uAsR, vW.xz / 8.0).r;
         roughnessFactor = mix(mix(0.6, rAs * 0.7, gRoad), 0.06, gPuddle * gRoad * uWetness);
@@ -932,6 +995,63 @@ function buildSignals(group, src, list) {
       for (const im of Object.values(lamps)) im.instanceColor.needsUpdate = true;
     },
   };
+}
+
+// 東京駅八重洲口のグランルーフ: 白い膜屋根が波打つように連なり、斜めの柱が支える
+function makeGranRoof(P) {
+  const g = new THREE.Group();
+  // 主軸(PCA)
+  const cx = P.reduce((t, p) => t + p[0], 0) / P.length, cz = P.reduce((t, p) => t + p[1], 0) / P.length;
+  let sxx = 0, szz = 0, sxz = 0;
+  for (const [x, z] of P) { sxx += (x - cx) ** 2; szz += (z - cz) ** 2; sxz += (x - cx) * (z - cz); }
+  const ang = 0.5 * Math.atan2(2 * sxz, sxx - szz);
+  const u = [Math.cos(ang), Math.sin(ang)], v = [-u[1], u[0]];
+  let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
+  for (const [x, z] of P) { const a = (x - cx) * u[0] + (z - cz) * u[1], b = (x - cx) * v[0] + (z - cz) * v[1]; u0 = Math.min(u0, a); u1 = Math.max(u1, a); v0 = Math.min(v0, b); v1 = Math.max(v1, b); }
+  const W = (v1 - v0) + 8; // 歩道側へ張り出す
+  const at = (a, b, y) => [cx + u[0] * a + v[0] * b, y, cz + u[1] * a + v[1] * b];
+  const pos = [], nrm = [];
+  const seg = 14, n = Math.max(2, Math.round((u1 - u0) / seg));
+  const H = (b) => 10 + ((b - (v0 - 8)) / W) * 5; // 奥ほど高い片流れ
+  for (let i = 0; i < n; i++) {
+    const a0 = u0 + (i / n) * (u1 - u0), a1 = u0 + ((i + 1) / n) * (u1 - u0), am = (a0 + a1) / 2;
+    const steps = 6;
+    for (let k = 0; k < steps; k++) {
+      const b0 = v0 - 8 + (k / steps) * W, b1 = v0 - 8 + ((k + 1) / steps) * W;
+      // 膜は区画の中央でたわむ
+      const sag = (b) => Math.sin(((b - (v0 - 8)) / W) * Math.PI) * 0.6;
+      const A = at(a0, b0, H(b0)), B = at(a1, b0, H(b0)), C = at(a1, b1, H(b1)), D = at(a0, b1, H(b1));
+      const M0 = at(am, b0, H(b0) - sag(b0)), M1 = at(am, b1, H(b1) - sag(b1));
+      pos.push(...A, ...M0, ...M1, ...A, ...M1, ...D, ...M0, ...B, ...C, ...M0, ...C, ...M1);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.computeVertexNormals();
+  const mem = new THREE.MeshStandardMaterial({ color: 0xf1efe8, roughness: 0.55, side: THREE.DoubleSide, emissive: 0x3a3833, emissiveIntensity: 0.4 });
+  const roof = new THREE.Mesh(geo, mem); roof.castShadow = roof.receiveShadow = true; g.add(roof);
+  // 斜めの柱(歩道側の縁から屋根の骨へ)
+  const steel = new THREE.MeshStandardMaterial({ color: 0xd9dad8, roughness: 0.35, metalness: 0.7 });
+  for (let i = 0; i <= n; i++) {
+    const a = u0 + (i / n) * (u1 - u0);
+    const foot = new THREE.Vector3(...at(a - 3, v0 - 7, 0)), top = new THREE.Vector3(...at(a, v0 - 2, H(v0 - 2)));
+    const len = foot.distanceTo(top);
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, len, 10), steel);
+    c.position.copy(foot).add(top).multiplyScalar(0.5);
+    c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), top.clone().sub(foot).normalize());
+    c.castShadow = true; g.add(c);
+    // 屋根の骨(梁)
+    const r0 = new THREE.Vector3(...at(a, v0 - 8, H(v0 - 8))), r1 = new THREE.Vector3(...at(a, v1, H(v1)));
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.35, r0.distanceTo(r1)), steel);
+    beam.position.copy(r0).add(r1).multiplyScalar(0.5); beam.lookAt(r1); beam.castShadow = true; g.add(beam);
+  }
+  // 屋根の下のガラス手すりのデッキ(2階の歩行者デッキ)
+  const deckL = u1 - u0;
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(deckL, 0.4, 5), new THREE.MeshStandardMaterial({ color: 0xbdbab2, roughness: 0.7 }));
+  deck.position.set(...at((u0 + u1) / 2, v0 - 2.5, 6.8)); deck.rotation.y = -ang; deck.castShadow = deck.receiveShadow = true; g.add(deck);
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(deckL, 1.1, 0.04), new THREE.MeshStandardMaterial({ color: 0x9fb4bf, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.35 }));
+  rail.position.set(...at((u0 + u1) / 2, v0 - 5, 7.55)); rail.rotation.y = -ang; g.add(rail);
+  return g;
 }
 
 // 工事現場: Poly Haven の金網フェンスで囲った空き地(カラーコーン・看板・資材)

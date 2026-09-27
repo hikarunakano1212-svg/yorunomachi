@@ -244,7 +244,7 @@ def main():
     print(f'建物 {len(buildings)} 棟 (ガラス {sum(b["s"] == "glass" for b in buildings)})')
 
     # ------------------------------------------------------------ 街路樹・街灯・信号・ガードレール・自販機
-    lamps, trees, fences, signals, vendings, signs = [], [], [], [], [], []
+    lamps, trees, fences, signals, vendings, signs, hedges = [], [], [], [], [], [], []
     deg = defaultdict(list)
     for i, e in enumerate(redges):
         deg[e['a']].append(i)
@@ -279,12 +279,16 @@ def main():
                     continue
                 # 街灯の腕は車道側(=法線の逆向き)へ
                 lamps.append([r1(x), r1(z), r1(math.atan2(nx * side, nz * side))])
-            if w >= 14:
-                for x, z, yaw, _ in along(line, 11, side * (w / 2 + 2.4), 1.5):
+            if w >= 9:
+                # 街路樹(8m 間隔)と、その間の植え込み(低木の帯)
+                for x, z, yaw, _ in along(line, 8, side * (w / 2 + 1.5), 1.0):
                     pt = Point(x, z)
-                    if pt.within(road_poly) or pt.within(blocked) or pt.within(near_junction):
+                    if pt.within(road_poly) or pt.within(blocked.buffer(0.5)) or pt.within(near_junction):
                         continue
-                    trees.append([r1(x), r1(z), r1(random.uniform(0.8, 1.2))])
+                    trees.append([r1(x), r1(z), r1(random.uniform(0.85, 1.25))])
+                    hx, hz = x + math.sin(yaw) * -4, z + math.cos(yaw) * -4
+                    if not Point(hx, hz).within(blocked.buffer(0.8)) and not Point(hx, hz).within(road_poly.buffer(0.3)) and not Point(hx, hz).within(near_junction):
+                        hedges.append([r1(hx), r1(hz), r1(yaw)])
             if w >= 10:
                 off = side * (w / 2 + 0.45)
                 seg = line.parallel_offset(abs(off), 'left' if off > 0 else 'right') if line.length > 6 else None
@@ -344,7 +348,7 @@ def main():
         if len(es) >= 3 and named and random.random() < 0.6:
             e = named[0]
             signs.append({'x': rnodes[n][0], 'z': rnodes[n][1], 't': e['name']})
-    print(f'街灯 {len(lamps)} / 街路樹 {len(trees)} / 柵 {len(fences)} / 信号 {len(signals)} / 自販機 {len(vendings)}')
+    print(f'植え込み {len(hedges)} / 街灯 {len(lamps)} / 街路樹 {len(trees)} / 柵 {len(fences)} / 信号 {len(signals)} / 自販機 {len(vendings)}')
 
     # ------------------------------------------------------------ 路面テクスチャ
     img = Image.new('RGB', (TEX, TEX), (0, 0, 0))
@@ -533,6 +537,7 @@ def main():
                       for b in buildings if b['n']],
         'marks': marks,
         'curbs': curbs,
+        'hedges': hedges,
         'lamps': lamps, 'trees': trees, 'fences': fences, 'signals': signals, 'vendings': vendings, 'signs': signs,
     }
     with open(os.path.join(OUT, 'yaesu.json'), 'w') as f:

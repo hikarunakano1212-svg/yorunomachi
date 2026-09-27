@@ -23,11 +23,15 @@ import { makeGlowSprite } from './textures.js';
 import { clamp, damp, rand, yen } from './util.js';
 
 const params = new URLSearchParams(location.search);
+const lowQ0 = params.get('q') === 'low';
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.9;
-let pixelRatio = Math.min(devicePixelRatio, params.get('q') === 'low' ? 0.75 : 1.25);
+// 画面の解像度: 高画質(既定)は端末の解像度そのまま(最大2倍)。軽量モードだけ下げる
+const MAX_PR = params.get('q') === 'low' ? 0.85 : Math.min(devicePixelRatio, 2);
+const MIN_PR = params.get('q') === 'low' ? 0.7 : Math.min(devicePixelRatio, 1);
+let pixelRatio = MAX_PR;
 renderer.setPixelRatio(pixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.info.autoReset = false;
@@ -44,8 +48,8 @@ scene.add(new THREE.HemisphereLight(0x3d4a80, 0x1a1016, 0.8));
 // 月明かり(影を落とす)。プレイヤーの周囲だけを高解像度のシャドウマップで覆う
 const moon = new THREE.DirectionalLight(0x9aa8ff, 0.8);
 moon.castShadow = true;
-moon.shadow.mapSize.set(2048, 2048);
-Object.assign(moon.shadow.camera, { left: -70, right: 70, top: 70, bottom: -70, near: 1, far: 500 });
+moon.shadow.mapSize.set(lowQ0 ? 2048 : 4096, lowQ0 ? 2048 : 4096);
+Object.assign(moon.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, near: 1, far: 600 });
 moon.shadow.bias = -0.0004; moon.shadow.normalBias = 0.04;
 scene.add(moon, moon.target);
 // 爆発の閃光用(常駐させて明るさだけ変える)
@@ -69,15 +73,16 @@ composer.addPass(new ShaderPass({
 const lowQ = params.get('q') === 'low';
 const gtao = lowQ ? null : new GTAOPass(scene, camera, innerWidth, innerHeight);
 if (gtao) {
-  gtao.updateGtaoMaterial({ radius: 1.2, distanceExponent: 1.5, thickness: 2, scale: 1.4, samples: 12 });
-  gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
-  gtao.blendIntensity = 0.9;
+  gtao.updateGtaoMaterial({ radius: 0.8, distanceExponent: 1.5, thickness: 1.5, scale: 1.1, samples: 16 });
+  gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 10, rings: 3, samples: 24 });
+  gtao.blendIntensity = 0.7;
+
   composer.addPass(gtao);
 }
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.55, 0.45, 0.92);
 composer.addPass(bloom);
 const finalPass = new ShaderPass({
-  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uHurt: { value: 0 }, uSpeed: { value: 0 }, uFade: { value: 0 }, uGrain: { value: 0.035 } },
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uHurt: { value: 0 }, uSpeed: { value: 0 }, uFade: { value: 0 }, uGrain: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
   fragmentShader: /* glsl */`
     uniform sampler2D tDiffuse; uniform float uTime, uHurt, uSpeed, uFade, uGrain; varying vec2 vUv;
@@ -86,7 +91,7 @@ const finalPass = new ShaderPass({
       vec2 c = vUv - 0.5;
       float r = length(c);
       // 色収差(ダメージ時・高速時に強く)
-      float ca = 0.0015 + uHurt * 0.01 + uSpeed * 0.003;
+      float ca = uHurt * 0.01 + uSpeed * 0.002;
       vec3 col;
       col.r = texture2D(tDiffuse, vUv + c * ca).r;
       col.g = texture2D(tDiffuse, vUv).g;
@@ -400,13 +405,13 @@ function applyMode(mode) {
   const sun = mode === 'sun';
   const day = mode !== 'night';
   const L = game.city.look;
-  scene.fog.color.set(sun ? 0xa9c2dc : day ? 0x8f98a2 : 0x070812);
-  scene.fog.density = sun ? 0.001 : day ? 0.0042 : 0.0095;
+  scene.fog.color.set(sun ? 0xbcd0e6 : day ? 0x8f98a2 : 0x070812);
+  scene.fog.density = sun ? 0.00065 : day ? 0.0042 : 0.0095;
   hemi.color.set(sun ? 0x9fc3ee : day ? 0xc4ccd6 : 0x3d4a80); hemi.groundColor.set(day ? 0x4d4a47 : 0x1a1016);
   hemi.intensity = sun ? 1.3 : day ? 1.9 : 0.8;
   moon.color.set(sun ? 0xfff2de : day ? 0xeef1f5 : 0x9aa8ff); moon.intensity = sun ? 3.6 : day ? 1.4 : 0.8;
   game.sunMode = sun;
-  finalPass.uniforms.uGrain.value = sun ? 0.008 : 0.035; // 晴れは粒子感を抑える
+  finalPass.uniforms.uGrain.value = 0; // ざらつきは足さない(画面が汚く見えるため)
   renderer.toneMapping = day ? THREE.AgXToneMapping : THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = sun ? 1.0 : day ? 1.15 : 0.9;
   sky.material.uniforms.uDay.value = day ? 1 : 0;
@@ -592,9 +597,9 @@ function renderFrame(dt) {
   fpsAcc += dt; fpsN++;
   if (fpsAcc > 2) {
     const fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0;
-    if (fps < 38 && gtao && gtao.enabled) { gtao.enabled = false; }
-    else if (fps < 38 && pixelRatio > 0.6) { pixelRatio = Math.max(0.6, pixelRatio - 0.15); renderer.setPixelRatio(pixelRatio); composer.setPixelRatio(pixelRatio); }
-    else if (fps > 58 && pixelRatio < Math.min(devicePixelRatio, 1.25)) { pixelRatio = Math.min(1.25, pixelRatio + 0.1); renderer.setPixelRatio(pixelRatio); composer.setPixelRatio(pixelRatio); }
+    if (fps < 30 && gtao && gtao.enabled) { gtao.enabled = false; }
+    else if (fps < 30 && pixelRatio > MIN_PR) { pixelRatio = Math.max(MIN_PR, pixelRatio - 0.15); renderer.setPixelRatio(pixelRatio); composer.setPixelRatio(pixelRatio); }
+    else if (fps > 55 && pixelRatio < MAX_PR) { pixelRatio = Math.min(MAX_PR, pixelRatio + 0.1); renderer.setPixelRatio(pixelRatio); composer.setPixelRatio(pixelRatio); }
     game.fps = fps;
   }
 }
