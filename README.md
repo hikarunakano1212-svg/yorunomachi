@@ -114,6 +114,10 @@ AXIS=X python blender/fp_arm.py assets/source/mixamo/Ch33_nonPBR.fbx
 - **車の乗り降り**：一人称でドアの前に立ち、ドアを開け、かがんで座席に座り、ドアを閉めます。降りるときは逆の順です。
   - ドアは車体色のパネルを重ねて開閉させています。
 
+## 一人称の腕と拳銃(アニメーション付き)
+
+`blender/fp_pistol.py` で fps-pistol-animations 素材（腕＋拳銃、骨格付き）を変換しています。構え・歩き・発砲・リロード（2種類）の動きを、そのまま three.js で再生します。素材に入っている頭のカメラの骨（Head_Cam）を、ゲームのカメラに重ねて配置しています。
+
 ## Poly Haven の素材を使う
 
 Poly Haven（https://polyhaven.com、CC0）の `.blend` を `blender/polyhaven.py` で glb に変換しています。

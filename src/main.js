@@ -23,6 +23,8 @@ import { makeGlowSprite } from './textures.js';
 import { clamp, damp, rand, yen } from './util.js';
 
 const params = new URLSearchParams(location.search);
+// ビューモデルの向きの補正(調整用)
+const vmFixParam = params.get('vmfix');
 const lowQ0 = params.get('q') === 'low';
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
@@ -116,6 +118,7 @@ if (!lowQ) composer.addPass(new SMAAPass(innerWidth * pixelRatio, innerHeight * 
 // ---------------------------------------------------------------- ゲーム
 const game = {
   scene, camera, renderer, flashLight,
+  vmFix: vmFixParam ? vmFixParam.split(',').map(Number) : null,
   money: 0, goal: 3000000, time: 0,
   startMinutes: 23 * 60, endMinutes: 29 * 60, // 23:00 → 翌5:00
   timeScale: 12,  // 現実1秒 = ゲーム内12秒(約30分で夜明け)

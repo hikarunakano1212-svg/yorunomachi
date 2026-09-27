@@ -67,6 +67,7 @@ export class Player {
       this.bareHolder.add(bare);
     }
     this.punchT = 0; this.punchSide = 1;
+
     this.flash = new THREE.PointLight(0xffc070, 0, 12, 2);
     cam.add(this.flash);
     // 手元を照らす弱いライト(街の光の照り返し)
@@ -76,6 +77,8 @@ export class Player {
     const fm = new THREE.SpriteMaterial({ map: game.glowTex, color: 0xffcc66, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
     this.muzzle = new THREE.Sprite(fm); this.muzzle.scale.setScalar(0.35); this.muzzle.visible = false;
     this.gunHolder.add(this.muzzle);
+    // アニメーション付きの腕+拳銃(構え・発砲・リロード・歩き)があれば、それを使う
+    if (game.assets.has('fp_pistol')) this.setupViewModel(game.assets.get('fp_pistol'));
     // 運転席(内装)
     this.cockpit = makeCockpit();
     // プレイヤーの車用ヘッドライト(実ライト)
@@ -151,6 +154,42 @@ export class Player {
     if (input.hit('Digit2') && this.weapon !== 'pistol') { this.weapon = 'pistol'; this.switchT = 0.3; }
     if (this.weapon === 'fists') this.updateFists(dt, input, moving);
     else { this.bareHolder.visible = false; this.updateGun(dt, input, moving); }
+    if (this.vm && this.weapon === 'fists') this.vm.rig.visible = false;
+  }
+
+  setupViewModel(src) {
+    const cam = this.game.camera;
+    const vm = src; // 1体だけなので複製しない
+    vm.traverse((o) => { if (o.isMesh) { o.frustumCulled = false; o.layers.set(1); o.castShadow = false; if (o.material) o.material.envMapIntensity = 0.8; } });
+    const rig = new THREE.Group(); rig.add(vm);
+    cam.add(rig);
+    const mixer = new THREE.AnimationMixer(vm);
+    const clip = (n) => THREE.AnimationClip.findByName(vm.userData.animations, n);
+    const A = {};
+    for (const n of ['idle', 'walk', 'fire', 'reload', 'reload_full']) if (clip(n)) A[n] = mixer.clipAction(clip(n));
+    for (const n of ['fire', 'reload', 'reload_full']) if (A[n]) { A[n].setLoop(THREE.LoopOnce, 1); A[n].clampWhenFinished = false; }
+    A.idle?.play();
+    mixer.update(0.01);
+    // 頭のカメラの骨をゲームのカメラに重ねる(骨の逆行列を掛ける)
+    vm.updateMatrixWorld(true);
+    const head = vm.getObjectByName('Head_Cam');
+    rig.updateMatrixWorld(true);
+    const inv = head ? new THREE.Matrix4().copy(rig.matrixWorld).invert().multiply(head.matrixWorld).invert() : new THREE.Matrix4();
+    inv.decompose(vm.position, vm.quaternion, vm.scale);
+    vm.quaternion.premultiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...(this.game.vmFix ?? [0, Math.PI, 0]))));
+    this.vm = { rig, vm, mixer, A, base: 'idle', oneShot: null };
+    mixer.addEventListener('finished', (e) => { if (this.vm.oneShot === e.action) { this.vm.oneShot = null; this.vmPlay(this.vm.base, 0.15); } });
+    this.gun.visible = false;
+  }
+  vmPlay(name, fade = 0.2, once = false) {
+    const V = this.vm, a = V.A[name];
+    if (!a) return;
+    const cur = V.current;
+    if (cur === a && !once) return;
+    a.reset(); a.setEffectiveWeight(1); a.play();
+    if (cur && cur !== a) cur.crossFadeTo(a, fade, false);
+    V.current = a;
+    if (once) V.oneShot = a;
   }
 
   // 素手: 構えた両腕。左クリックで左右交互にパンチ
@@ -190,6 +229,13 @@ export class Player {
 
   updateGun(dt, input, moving) {
     const g = this.game;
+    if (this.vm) {
+      const V = this.vm;
+      V.rig.visible = true;
+      V.base = moving > 1 ? 'walk' : 'idle';
+      if (!V.oneShot) this.vmPlay(V.base, 0.3);
+      V.mixer.update(dt);
+    }
     this.gunHolder.visible = true;
     this.cool -= dt;
     this.recoil = damp(this.recoil, 0, 12, dt);
@@ -197,10 +243,10 @@ export class Player {
       this.reloadT -= dt;
       if (this.reloadT <= 0) { const n = Math.min(12 - this.ammo, this.reserve); this.ammo += n; this.reserve -= n; }
     }
-    if (input.hit('KeyR') && this.ammo < 12 && this.reserve > 0 && this.reloadT <= 0) { this.reloadT = 1.3; g.audio.reload(); }
+    if (input.hit('KeyR') && this.ammo < 12 && this.reserve > 0 && this.reloadT <= 0) this.startReload();
     if (input.clicked && this.cool <= 0 && this.reloadT <= 0) {
       if (this.ammo > 0) this.fire();
-      else { g.audio.empty(); if (this.reserve > 0) { this.reloadT = 1.3; g.audio.reload(); } }
+      else { g.audio.empty(); if (this.reserve > 0) this.startReload(); }
     }
     // 拳銃の位置(揺れ・反動・リロード時は下げる)
     const rl = this.reloadT > 0 ? Math.sin(Math.min(1, (1.3 - this.reloadT) / 1.3) * Math.PI) : 0;
@@ -217,8 +263,21 @@ export class Player {
     if (this.muzzleT > 0) { this.muzzleT -= dt; if (this.muzzleT <= 0) this.muzzle.visible = false; }
   }
 
+  startReload() {
+    const g = this.game;
+    g.audio.reload();
+    if (this.vm) {
+      const name = this.ammo === 0 && this.vm.A.reload_full ? 'reload_full' : 'reload';
+      const a = this.vm.A[name];
+      a.timeScale = 1.35;
+      this.reloadT = a.getClip().duration / a.timeScale;
+      this.vmPlay(name, 0.1, true);
+    } else this.reloadT = 1.3;
+  }
+
   fire() {
     const g = this.game;
+    if (this.vm) this.vmPlay('fire', 0.03, true);
     this.ammo--; this.cool = 0.16; this.recoil = 1;
     const steady = 1 - (this.aimT ?? 0) * 0.6;
     this.pitch += 0.018 * steady; this.yaw += rand(-0.006, 0.006) * steady;
