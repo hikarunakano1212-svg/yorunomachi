@@ -43,10 +43,10 @@ export class Player {
         if (oldHand) oldHand.visible = false;
         const pb = new THREE.Box3().setFromObject(ph);
         const grip = new THREE.Vector3(0, pb.min.y + 0.035, pb.max.z - 0.035);
-        arm.rotation.set(-0.35, 0.08, -Math.PI / 2, 'ZXY');   // 手のひらを左へ向け、前腕を下から添える
+        arm.rotation.set(0.55, 0.0, -Math.PI / 2, 'ZXY');   // 手でグリップを後ろから包み、前腕は手前下へ伸ばす
         arm.updateMatrixWorld(true);
         const fist = new THREE.Vector3(0, -0.025, -0.075).applyEuler(arm.rotation);
-        arm.position.copy(grip).sub(fist).add(new THREE.Vector3(-0.03, 0.015, -0.005)); // 指がグリップを包む位置へ微調整
+        arm.position.copy(grip).sub(fist).add(new THREE.Vector3(-0.025, 0.035, 0.0)); // 指がグリップを包む位置へ微調整
         arm.traverse((o) => { if (o.isMesh) { o.frustumCulled = false; o.material = o.material.clone(); } });
         this.gun.add(arm);
         this.fpArm = arm;
@@ -156,10 +156,11 @@ export class Player {
     const k = this.aimT ?? 0;
     const sway = Math.sin(this.bob) * 0.012 * Math.min(1, moving / 4) * (1 - k * 0.8);
     // 腰だめ位置と照準位置(照星と照門の上端を画面中央に合わせる: 0.08 × 0.85)
-    const hip = [0.16, -0.15 - Math.abs(Math.cos(this.bob)) * 0.008, -0.36];
+    const hip = [0.075, -0.105 - Math.abs(Math.cos(this.bob)) * 0.008, -0.2];
     const ads = [0.003, -0.068, -0.27];
     this.gunHolder.position.set(hip[0] + (ads[0] - hip[0]) * k + sway, hip[1] + (ads[1] - hip[1]) * k - rl * 0.15, hip[2] + (ads[2] - hip[2]) * k + this.recoil * 0.05);
-    this.gunHolder.rotation.set(this.recoil * (0.25 - k * 0.15) - rl * 0.6, 0.04 * (1 - k), rl * 0.4);
+    // 腰だめでは銃口をやや内側・上に向け、スライドの後ろ側が見える構え
+    this.gunHolder.rotation.set(this.recoil * (0.25 - k * 0.15) - rl * 0.6 + 0.03 * (1 - k), 0.14 * (1 - k), rl * 0.4 + 0.12 * (1 - k));
     this.muzzle.position.set(0, 0.06, -0.2);
     this.flash.intensity = damp(this.flash.intensity, 0, 30, dt);
     if (this.muzzleT > 0) { this.muzzleT -= dt; if (this.muzzleT <= 0) this.muzzle.visible = false; }
