@@ -218,7 +218,8 @@ def main():
                     h = ov['podium']
                 else:
                     h = ov['h']
-            style = 'glass' if h >= 90 else 'office' if h >= 40 else 'mixed'
+            r_ = random.random()
+            style = 'glass' if h >= 90 or (h >= 60 and r_ < 0.3) else ('grid' if r_ < 0.55 else 'office') if h >= 40 else 'mixed'
             if '駅舎' in name or ('東京駅' in name and h < 60):
                 style = 'brick'
             if in_rail:
@@ -462,6 +463,21 @@ def main():
             b2 = (sp[0] - nx * half, sp[1] - nz * half)
             d.line([px(a), px(b2)], fill=WHITE, width=max(1, int(0.45 * S)))
             seg_quad(a, b2, 0.45, WHITE)
+            # 進行方向の矢印(停止線の 6m 手前、各車線の中央)
+            if e['w'] >= 10:
+                lanes = max(1, round((e['w'] if e.get('ow') else e['w'] / 2) / 3.3))
+                span = half if e.get('ow') else half
+                for li in range(lanes):
+                    off = (li + 0.5) * (span * (2 if e.get('ow') else 1)) / lanes - (half if e.get('ow') else 0)
+                    cx0, cz0 = sp[0] + dx * 6 - nx * off, sp[1] + dz * 6 - nz * off
+                    # 軸(交差点へ向かう向き = -d)
+                    tail = (cx0 + dx * 2.5, cz0 + dz * 2.5)
+                    head = (cx0 - dx * 0.8, cz0 - dz * 0.8)
+                    seg_quad(tail, head, 0.18, WHITE)
+                    tip = (cx0 - dx * 2.2, cz0 - dz * 2.2)
+                    l1 = (head[0] + nx * 0.45, head[1] + nz * 0.45)
+                    r1_ = (head[0] - nx * 0.45, head[1] - nz * 0.45)
+                    marks.append([r1(v) for v in (*l1, *tip, *tip, *r1_)] + [0])
     img = img.filter(ImageFilter.GaussianBlur(0.6))
     os.makedirs(OUT, exist_ok=True)
     img.save(os.path.join(OUT, 'ground.webp'), quality=88)
@@ -489,6 +505,18 @@ def main():
                 md.line([mp(c) for c in part.coords], fill=(70, 100, 170), width=1)
     mm.save(os.path.join(OUT, 'minimap.png'))
 
+    # 縁石: 車道の外周(建物や高架に重なる所は除く)
+    curbs = []
+    edge = road_poly.boundary.difference(blocked.buffer(0.3)).intersection(AREA.buffer(-3))
+    for part in getattr(edge, 'geoms', [edge]):
+        if part.geom_type != 'LineString':
+            continue
+        cs = list(part.simplify(0.15).coords)
+        for i in range(len(cs) - 1):
+            if math.dist(cs[i], cs[i + 1]) > 0.3:
+                curbs.append([r1(cs[i][0]), r1(cs[i][1]), r1(cs[i + 1][0]), r1(cs[i + 1][1])])
+    print(f'縁石 {len(curbs)} 区間')
+
     def polys(g):
         return [flat(list(pg.exterior.coords)[:-1]) for pg in getattr(g, 'geoms', [g])
                 if pg.geom_type == 'Polygon' and pg.area > 4]
@@ -504,6 +532,7 @@ def main():
         'landmarks': [{'n': b['n'], 'h': b['h'], 'c': [r1(v) for v in Polygon(unflat(b['p'])).centroid.coords[0]]}
                       for b in buildings if b['n']],
         'marks': marks,
+        'curbs': curbs,
         'lamps': lamps, 'trees': trees, 'fences': fences, 'signals': signals, 'vendings': vendings, 'signs': signs,
     }
     with open(os.path.join(OUT, 'yaesu.json'), 'w') as f:

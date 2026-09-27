@@ -77,10 +77,10 @@ if (gtao) {
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.55, 0.45, 0.92);
 composer.addPass(bloom);
 const finalPass = new ShaderPass({
-  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uHurt: { value: 0 }, uSpeed: { value: 0 }, uFade: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uHurt: { value: 0 }, uSpeed: { value: 0 }, uFade: { value: 0 }, uGrain: { value: 0.035 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
   fragmentShader: /* glsl */`
-    uniform sampler2D tDiffuse; uniform float uTime, uHurt, uSpeed, uFade; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform float uTime, uHurt, uSpeed, uFade, uGrain; varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)) + uTime) * 43758.5453); }
     void main(){
       vec2 c = vUv - 0.5;
@@ -96,7 +96,7 @@ const finalPass = new ShaderPass({
       // 夜の色味(シャドウを青緑、ハイライトを暖色へ)
       float l = dot(col, vec3(0.299, 0.587, 0.114));
       col = mix(col, col * vec3(0.85, 0.98, 1.15), smoothstep(0.4, 0.0, l) * 0.5);
-      col += (hash(vUv * 800.0) - 0.5) * 0.035;
+      col += (hash(vUv * 800.0) - 0.5) * uGrain;
       col = mix(col, vec3(l) * vec3(1.0, 0.4, 0.4), uHurt * 0.4);
       col *= 1.0 - uFade;
       gl_FragColor = vec4(col, 1.0);
@@ -165,7 +165,7 @@ async function init() {
   game.hud = new Hud(game);
   setupPlaces();
   game.startPos = game.places.start;
-  applyMode(params.get('mode') === 'day' ? 'day' : 'night');
+  applyMode(['day', 'sun'].includes(params.get('mode')) ? params.get('mode') : 'night');
   document.querySelectorAll('.mode button').forEach((x) => x.classList.toggle('on', x.dataset.mode === game.mode));
   game.player = new Player(game, game.startPos.x, game.startPos.z);
   game.traffic = new Traffic(game, params.get('q') === 'low' ? 16 : 24);
@@ -397,28 +397,35 @@ function endScreen(main, sub, cls) {
 const hemi = scene.children.find((o) => o.isHemisphereLight);
 function applyMode(mode) {
   game.mode = mode;
-  const day = mode === 'day';
+  const sun = mode === 'sun';
+  const day = mode !== 'night';
   const L = game.city.look;
-  scene.fog.color.set(day ? 0x8f98a2 : 0x070812);
-  scene.fog.density = day ? 0.0042 : 0.0095;
-  hemi.color.set(day ? 0xc4ccd6 : 0x3d4a80); hemi.groundColor.set(day ? 0x4d4a47 : 0x1a1016);
-  hemi.intensity = day ? 1.9 : 0.8;
-  moon.color.set(day ? 0xeef1f5 : 0x9aa8ff); moon.intensity = day ? 1.4 : 0.8;
+  scene.fog.color.set(sun ? 0xa9c2dc : day ? 0x8f98a2 : 0x070812);
+  scene.fog.density = sun ? 0.001 : day ? 0.0042 : 0.0095;
+  hemi.color.set(sun ? 0x9fc3ee : day ? 0xc4ccd6 : 0x3d4a80); hemi.groundColor.set(day ? 0x4d4a47 : 0x1a1016);
+  hemi.intensity = sun ? 1.3 : day ? 1.9 : 0.8;
+  moon.color.set(sun ? 0xfff2de : day ? 0xeef1f5 : 0x9aa8ff); moon.intensity = sun ? 3.6 : day ? 1.4 : 0.8;
+  game.sunMode = sun;
+  finalPass.uniforms.uGrain.value = sun ? 0.008 : 0.035; // 晴れは粒子感を抑える
   renderer.toneMapping = day ? THREE.AgXToneMapping : THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = day ? 1.15 : 0.9;
+  renderer.toneMappingExposure = sun ? 1.0 : day ? 1.15 : 0.9;
   sky.material.uniforms.uDay.value = day ? 1 : 0;
+  sky.material.uniforms.uSun.value = sun ? 1 : 0;
   for (const m of L.facadeMats) m.emissiveIntensity = m.userData.baseEmissive * (day ? 0.1 : 1);
   L.storeMat.emissiveIntensity = day ? 0.3 : 0.9;
   L.vSignMat.color.setScalar(day ? 0.85 : 1.8); L.hSignMat.color.setScalar(day ? 0.8 : 1.3);
   L.groundU.uLightAmt.value = day ? 0 : 1;
-  L.groundU.uWetness.value = day ? 0.55 : 1;
+  L.groundU.uWetness.value = sun ? 0.04 : day ? 0.55 : 1;
+  L.groundU.uRain.value = sun ? 0 : 1;
   L.uDay.value = day ? 1 : 0;
+  L.uSun.value = sun ? 1 : 0;
   L.aviMat.visible = !day;
   L.glow().visible = !day;
   L.glow().uniforms.uScale.value = day ? 0 : 600;
   for (const m of L.lampMats) m.emissiveIntensity = day ? 0.05 : 6;
   bloom.strength = day ? 0.18 : 0.55;
-  rain.material.uniforms.uAmount.value = day ? 0.7 : 1;
+  rain.material.uniforms.uAmount.value = sun ? 0 : day ? 0.7 : 1;
+  rain.visible = !sun;
   game.startMinutes = day ? 13 * 60 : 23 * 60;
   game.endMinutes = day ? 19 * 60 : 29 * 60;
   // 映り込み用の環境マップも撮り直す
@@ -428,7 +435,7 @@ function applyMode(mode) {
   scene.add(cube); cube.update(renderer, scene); scene.remove(cube);
   const pm = new THREE.PMREMGenerator(renderer);
   scene.environment = pm.fromCubemap(rt.texture).texture;
-  scene.environmentIntensity = day ? 0.9 : 0.55;
+  scene.environmentIntensity = sun ? 1.0 : day ? 0.9 : 0.55;
 }
 game.applyMode = applyMode;
 document.querySelectorAll('.mode button').forEach((b) => b.addEventListener('click', () => {
@@ -571,7 +578,8 @@ function renderFrame(dt) {
   g.city.update(t, dt);
   // 影を落とす範囲をプレイヤーに追従させる
   moon.target.position.set(camera.position.x, 0, camera.position.z);
-  moon.position.set(camera.position.x - 60, 140, camera.position.z + 50);
+  if (game.sunMode) moon.position.set(camera.position.x + 90, 120, camera.position.z + 70);
+  else moon.position.set(camera.position.x - 60, 140, camera.position.z + 50);
   const fovScale = renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
   g.city.setGlowScale(fovScale);
   g.sparks.mat.uniforms.uScale.value = g.smoke.mat.uniforms.uScale.value = fovScale;

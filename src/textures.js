@@ -301,7 +301,7 @@ export function makeFacade2(style) {
   const lit = (p) => Math.random() < p;
   if (style === 'glass') {
     // カーテンウォール: 1.5m ピッチの方立、階ごとのスパンドレル、横の日除けフィン
-    g.fillStyle = '#18222e'; g.fillRect(0, 0, S, S);
+    g.fillStyle = '#1c2a3a'; g.fillRect(0, 0, S, S);
     gr.fillStyle = '#101010'; gr.fillRect(0, 0, S, S);   // 低い粗さ = よく映り込む
     for (let f = 0; f < 8; f++) {
       const y = f * floorH;
@@ -328,6 +328,28 @@ export function makeFacade2(style) {
       g.fillStyle = '#8a95a0'; g.fillRect(0, y + 0.66 * px, S, 0.06 * px);
     }
     for (let x = 0; x < S; x += 1.5 * px) { g.fillStyle = '#56616c'; g.fillRect(x, 0, 0.08 * px, S); ge.fillStyle = '#000'; ge.fillRect(x, 0, 0.08 * px, S); }
+  } else if (style === 'grid') {
+    // 白いプレキャストコンクリートに、縦長の窓が 1.5m ピッチで並ぶ(丸の内・八重洲の高層オフィス)
+    const wall = pick(['#d9d8d2', '#cfd0cc', '#e2ded4', '#c4c6c4']);
+    g.fillStyle = wall; g.fillRect(0, 0, S, S);
+    gr.fillStyle = '#b0b0b0'; gr.fillRect(0, 0, S, S);
+    for (let i = 0; i < 2500; i++) { g.fillStyle = `rgba(60,60,60,${rand(0.01, 0.05)})`; g.fillRect(rand(0, S), rand(0, S), rand(1, 3), rand(4, 40)); }
+    const pitch = 1.5 * px, ww = 0.95 * px, wh = 2.5 * px;
+    for (let f = 0; f < 8; f++) {
+      const y = f * floorH;
+      const floorLit = lit(0.55);
+      const tone = pick(['#eef4ff', '#f6f8ff', '#fff7ea']);
+      for (let x = 0; x < S; x += pitch) {
+        const wx = x + (pitch - ww) / 2, wy = y + 0.75 * px;
+        // 窓の奥行き(上と左に影、下と右に光)
+        g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(wx - 3, wy - 4, ww + 6, 5); g.fillRect(wx - 4, wy, 4, wh);
+        g.fillStyle = 'rgba(255,255,255,.5)'; g.fillRect(wx - 3, wy + wh, ww + 6, 3);
+        const on = floorLit ? lit(0.8) : lit(0.06);
+        gr.fillStyle = '#181818'; gr.fillRect(wx, wy, ww, wh);
+        if (on) { g.fillStyle = tone; g.fillRect(wx, wy, ww, wh); ge.globalAlpha = rand(0.4, 0.8); ge.fillStyle = tone; ge.fillRect(wx, wy, ww, wh); ge.globalAlpha = 1; }
+        else { const grd = g.createLinearGradient(wx, wy, wx, wy + wh); grd.addColorStop(0, '#3a4a5c'); grd.addColorStop(1, '#1a222c'); g.fillStyle = grd; g.fillRect(wx, wy, ww, wh); }
+      }
+    }
   } else if (style === 'office' || style === 'mixed') {
     const wall = style === 'office' ? pick(['#6f7378', '#8a8479', '#575b61', '#9a9a94']) : pick(['#7d7468', '#6b6d70', '#8c8175', '#4f5257', '#a39b8e']);
     g.fillStyle = wall; g.fillRect(0, 0, S, S);

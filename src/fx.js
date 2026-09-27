@@ -118,10 +118,10 @@ export function makeRain(count = 9000) {
 export function makeSky() {
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
-    uniforms: { uTime: { value: 0 }, uDawn: { value: 0 }, uDay: { value: 0 } },
+    uniforms: { uTime: { value: 0 }, uDawn: { value: 0 }, uDay: { value: 0 }, uSun: { value: 0 } },
     vertexShader: 'varying vec3 vP; void main(){ vP = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = p.xyww; }',
     fragmentShader: /* glsl */`
-      varying vec3 vP; uniform float uTime, uDawn, uDay;
+      varying vec3 vP; uniform float uTime, uDawn, uDay, uSun;
       float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
       float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
         return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
@@ -140,6 +140,12 @@ export function makeSky() {
         vec3 dayC = mix(vec3(0.78, 0.8, 0.82), vec3(0.55, 0.58, 0.62), pow(h, 0.6));
         dayC *= 0.88 + 0.16 * fbm(uv * 0.7 + uTime * 0.005);
         col = mix(col, dayC * 1.6, uDay);
+        // 晴れ: 濃い青空に白い積雲
+        vec3 blue = mix(vec3(0.55, 0.72, 0.95), vec3(0.06, 0.26, 0.72), pow(h, 0.45));
+        vec2 cuv = d.xz / (d.y + 0.08) * 0.9 + vec2(uTime * 0.004, 0.0);
+        float cl = smoothstep(0.42, 0.66, fbm(cuv * 0.6)) * smoothstep(0.0, 0.12, d.y);
+        vec3 sunC = mix(blue, vec3(1.0, 1.0, 0.98) * mix(0.8, 1.05, fbm(cuv * 3.0)), cl);
+        col = mix(col, sunC * 1.5, uSun);
         gl_FragColor = vec4(col, 1.0);
       }`,
   });

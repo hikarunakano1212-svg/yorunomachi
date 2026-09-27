@@ -46,7 +46,7 @@ export class Hud {
     // 時計
     const mins = g.clockMinutes();
     const hh = Math.floor(mins / 60) % 24, mm = Math.floor(mins % 60);
-    this.el.clock.innerHTML = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}<small>${g.mode === 'day' ? '期限の19時まで' : '夜明けまで'} ${Math.max(0, Math.ceil((g.endMinutes - mins) / 60 * 10) / 10)}時間</small>`;
+    this.el.clock.innerHTML = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}<small>${g.mode !== 'night' ? '期限の19時まで' : '夜明けまで'} ${Math.max(0, Math.ceil((g.endMinutes - mins) / 60 * 10) / 10)}時間</small>`;
     this.el.hp.style.transform = `scaleX(${p.hp / 100})`;
     this.el.hp.style.background = p.hp < 30 ? '#ff4d6a' : '';
     if (p.inCar) {

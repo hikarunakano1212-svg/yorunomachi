@@ -269,7 +269,8 @@ export async function buildYaesu(game, mapData) {
   const M = mapData.json;
   const pbr = await loadPbr();
   const facadeMats = [];
-  const uDay = { value: 0 }; // 昼モード(窓を空が映る暗いガラスにする)
+  const uDay = { value: 0 };
+  const uSun = { value: 0 }; // 晴れ(ガラスに青空を映す) // 昼モード(窓を空が映る暗いガラスにする)
   const group = new THREE.Group();
   scene.add(group);
   const col = new Colliders();
@@ -277,8 +278,8 @@ export async function buildYaesu(game, mapData) {
   const glowLights = [], glowSprites = [], shopFronts = [];
 
   // ---------- 建物
-  const styles = ['glass', 'office', 'mixed', 'brick', 'canopy', 'granroof'];
-  const facadeVariants = { office: 3, mixed: 4 };
+  const styles = ['glass', 'office', 'grid', 'mixed', 'brick', 'canopy', 'granroof'];
+  const facadeVariants = { office: 3, mixed: 4, grid: 2 };
   const facades = {};
   for (const s of styles) {
     const n = facadeVariants[s] ?? 1;
@@ -409,10 +410,11 @@ export async function buildYaesu(game, mapData) {
         side: G.style === 'canopy' || G.style === 'granroof' ? THREE.DoubleSide : THREE.FrontSide,
       });
       // 窓の配置(テクスチャ上の m 単位): ピッチ, 窓の左端, 幅, 下端, 高さ
-      const WIN = { office: [3, 0.3, 2.4, 1.0, 2.2], mixed: [3, 0.6, 1.8, 1.0, 2.2], brick: [3, 0.8, 1.4, 1.1, 2.2], glass: [1.5, 0.0, 1.5, 0.7, 3.3] }[G.style];
+      const WIN = { grid: [1.5, 0.275, 0.95, 0.75, 2.5], office: [3, 0.3, 2.4, 1.0, 2.2], mixed: [3, 0.6, 1.8, 1.0, 2.2], brick: [3, 0.8, 1.4, 1.1, 2.2], glass: [1.5, 0.0, 1.5, 0.7, 3.3] }[G.style];
       m.onBeforeCompile = (sh) => {
         sh.uniforms.uDetail = { value: detail.albedo };
         sh.uniforms.uDay = uDay;
+        sh.uniforms.uSun = uSun;
         sh.uniforms.uWin = { value: new THREE.Vector4(WIN?.[0] ?? 3, WIN?.[1] ?? 0, WIN?.[2] ?? 0, WIN?.[3] ?? 0) };
         sh.uniforms.uWinH = { value: WIN?.[4] ?? 0 };
         sh.vertexShader = sh.vertexShader
@@ -420,7 +422,7 @@ export async function buildYaesu(game, mapData) {
           .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWp = (modelMatrix * vec4(position, 1.0)).xyz; vWN = normalize(mat3(modelMatrix) * normal);');
         sh.fragmentShader = sh.fragmentShader
           .replace('#include <common>', `#include <common>
-            uniform sampler2D uDetail; uniform float uDay, uWinH; uniform vec4 uWin; varying vec3 vWp; varying vec3 vWN;
+            uniform sampler2D uDetail; uniform float uDay, uSun, uWinH; uniform vec4 uWin; varying vec3 vWp; varying vec3 vWN;
             float gWin, gRoomLit; vec3 gRoom;
             float hh(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }`)
           .replace('#include <map_fragment>', `#include <map_fragment>
@@ -470,13 +472,14 @@ export async function buildYaesu(game, mapData) {
               gRoom = clamp(c * mix(vec3(1.0), litC * 1.4 + 0.1, gRoomLit), 0.0, 4.0);
               // 昼: 室内は外より暗い。夜: 点灯していない部屋はほぼ真っ暗
               diffuseColor.rgb = mix(gRoom * mix(0.05, 0.35, uDay), diffuseColor.rgb, 0.0);
+              ${glass ? 'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.16, 0.3, 0.5), 0.8 * uDay); // 昼は青い反射ガラス' : ''}
             } else {
               diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.1, 0.12, 0.14), gWin * uDay);
             }`)
           .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-            if (uWinH > 0.0 && gWin > 0.5 && abs(vWN.y) < 0.5) totalEmissiveRadiance = gRoom * gRoomLit * emissive.r * mix(1.0, 2.5, uDay);`)
+            if (uWinH > 0.0 && gWin > 0.5 && abs(vWN.y) < 0.5) totalEmissiveRadiance = gRoom * gRoomLit * emissive.r * mix(1.0, ${glass ? '0.15' : '2.5'}, uDay);`)
           .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
-            metalnessFactor = mix(metalnessFactor, 0.0, gWin);`)
+            metalnessFactor = mix(metalnessFactor, ${glass ? '0.92 * uDay' : '0.0'}, gWin);`)
           .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
             roughnessFactor = mix(roughnessFactor, 0.04, gWin);`)
           .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
@@ -486,6 +489,14 @@ export async function buildYaesu(game, mapData) {
               float fr = 0.04 + 0.96 * pow(1.0 - abs(dot(Vv, normalize(vWN))), 5.0);
               reflectedLight.indirectSpecular *= mix(0.6, 1.6, fr);
               reflectedLight.directDiffuse *= 0.3; reflectedLight.indirectDiffuse *= mix(0.3, 1.0, uDay);
+              ${glass ? `// 晴れ: 反射ベクトルで空(青)と地上(暗い街並み)を描き分けて映す。パネルごとにわずかに歪ませる
+              vec3 Rr = reflect(Vv, normalize(vWN + vec3(hh(cell) - 0.5, 0.0, hh(cell + 5.0) - 0.5) * 0.04));
+              float up = Rr.y;
+              vec3 skyR = mix(vec3(0.5, 0.64, 0.82), vec3(0.08, 0.24, 0.6), smoothstep(0.0, 0.6, up));
+              skyR = mix(skyR, vec3(0.95), smoothstep(0.55, 0.75, fract(sin(dot(floor(Rr.xz / (up + 0.2) * 3.0), vec2(12.9, 78.2))) * 437.5)) * 0.35 * step(0.05, up));
+              skyR = mix(vec3(0.16, 0.18, 0.21), skyR, smoothstep(-0.05, 0.06, up));
+              reflectedLight.indirectSpecular = mix(reflectedLight.indirectSpecular, skyR * (0.4 + 0.6 * fr) * 0.8, uSun);
+              reflectedLight.indirectDiffuse *= 1.0 - 0.8 * uSun;` : ''}
             }`);
       };
       m.userData.baseEmissive = m.emissiveIntensity;
@@ -784,6 +795,21 @@ export async function buildYaesu(game, mapData) {
     group.add(marks);
   }
 
+  // 縁石(車道と歩道の境の段差)
+  if (M.curbs?.length) {
+    const cg = new THREE.BoxGeometry(1, 0.16, 0.2); cg.translate(0, 0.08, 0);
+    const cm = new THREE.MeshStandardMaterial({ color: 0xa9a69e, roughness: 0.8, map: pbr.concrete.albedo });
+    const im = new THREE.InstancedMesh(cg, cm, M.curbs.length);
+    const Mx = new THREE.Matrix4(), Q = new THREE.Quaternion(), Y = new THREE.Vector3(0, 1, 0);
+    M.curbs.forEach(([ax, az, bx, bz], i) => {
+      const len = Math.hypot(bx - ax, bz - az);
+      Mx.compose(new THREE.Vector3((ax + bx) / 2, 0, (az + bz) / 2), Q.setFromAxisAngle(Y, Math.atan2(-(bz - az), bx - ax)), new THREE.Vector3(len + 0.02, 1, 1));
+      im.setMatrixAt(i, Mx);
+    });
+    im.receiveShadow = true; im.castShadow = true;
+    group.add(im);
+  }
+
   // ワールドの端(見えない壁)
   const E = HALF - 2;
   col.addSeg(-E, -E, E, -E); col.addSeg(E, -E, E, E); col.addSeg(E, E, -E, E); col.addSeg(-E, E, -E, -E);
@@ -804,7 +830,7 @@ export async function buildYaesu(game, mapData) {
   return {
     group, colliders: col, roads, lamps: lampSpots, shopFronts, parkedSpots, vendings, landmarks: M.landmarks, half: HALF,
     buildingMeshes, minimapImg, signals: signalObjs, trains,
-    look: { uDay, facadeMats, storeMat, vSignMat, hSignMat, groundU, aviMat, glow: () => group.userData.glowMat, lampMats: collectLampMats(group) },
+    look: { uDay, uSun, facadeMats, storeMat, vSignMat, hSignMat, groundU, aviMat, glow: () => group.userData.glowMat, lampMats: collectLampMats(group) },
     update(t, dt) {
       groundU.uTime.value = t;
       aviMat.opacity = Math.sin(t * 3) > 0 ? 1 : 0.1;
