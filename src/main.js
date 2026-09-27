@@ -317,7 +317,7 @@ game.shoot = (o, d, who) => {
 };
 
 game.onPedHit = (p, how) => {
-  game.wanted.crime(2, how === 'car' ? 'ひき逃げ' : '通行人への暴行');
+  game.wanted.crime(how === 'fist' ? 1 : 2, how === 'car' ? 'ひき逃げ' : '通行人への暴行');
   game.peds.scareAll(p.pos.x, p.pos.z, 30, 1);
 };
 game.onEnterCar = () => {

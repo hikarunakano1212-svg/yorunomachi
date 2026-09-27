@@ -107,6 +107,13 @@ Mixamo（https://www.mixamo.com）の人物と動きを変換して、歩行者�
 AXIS=X python blender/fp_arm.py assets/source/mixamo/Ch33_nonPBR.fbx
 ```
 
+## 素手の両腕と、車の乗り降り
+
+- **素手**：`1` キーで素手、`2` キーで拳銃に持ち替えます。素手は左クリックでパンチします。
+  - 両腕は fps-arms 素材（色・法線 2048px）を `blender/fp_bare.py` で変換したものです。
+- **車の乗り降り**：一人称でドアの前に立ち、ドアを開け、かがんで座席に座り、ドアを閉めます。降りるときは逆の順です。
+  - ドアは車体色のパネルを重ねて開閉させています。
+
 ## Poly Haven の素材を使う
 
 Poly Haven（https://polyhaven.com、CC0）の `.blend` を `blender/polyhaven.py` で glb に変換しています。

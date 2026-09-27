@@ -53,7 +53,7 @@ export class Hud {
       this.el.carhp.style.transform = `scaleX(${p.inCar.hp / 100})`;
       this.el.speed.textContent = Math.round(Math.abs(p.inCar.speed) * 3.6);
     }
-    this.el.ammo.innerHTML = p.reloadT > 0 ? '<small>リロード中…</small>' : `<b>${p.ammo}</b><small> / ${p.reserve}</small>`;
+    this.el.ammo.innerHTML = p.weapon === 'fists' ? '<small>素手</small>' : p.reloadT > 0 ? '<small>リロード中…</small>' : `<b>${p.ammo}</b><small> / ${p.reserve}</small>`;
     this.el.cross.classList.toggle('car', !!p.inCar);
     this.el.area.textContent = g.areaName();
     // 字幕

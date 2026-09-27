@@ -55,6 +55,18 @@ export class Player {
     // 路面反射に映り込まないようレイヤー1へ
     this.gun.traverse((o) => o.layers.set(1));
     cam.add(this.gunHolder);
+    // 素手(両腕)。1 キーで素手、2 キーで拳銃に持ち替える
+    this.weapon = 'pistol';
+    this.bareHolder = new THREE.Group();
+    this.bareHolder.visible = false;
+    cam.add(this.bareHolder);
+    if (game.assets.has('fp_bare')) {
+      const bare = game.assets.clone('fp_bare');
+      bare.scale.setScalar(0.2);
+      bare.traverse((o) => { if (o.isMesh) { o.frustumCulled = false; o.layers.set(1); o.material = o.material.clone(); o.material.envMapIntensity = 0.6; } });
+      this.bareHolder.add(bare);
+    }
+    this.punchT = 0; this.punchSide = 1;
     this.flash = new THREE.PointLight(0xffc070, 0, 12, 2);
     cam.add(this.flash);
     // 手元を照らす弱いライト(街の光の照り返し)
@@ -79,9 +91,10 @@ export class Player {
     const g = this.game;
     // 覗き込み中は視野に合わせて感度を下げる
     const [lx, ly] = input.consumeLook(this.inCar ? 1 : 1 - (this.aimT ?? 0) * 0.45);
+    if (this.trans) { this.updateTrans(dt); return; }
     if (this.inCar) this.updateCar(dt, input, lx, ly);
     else this.updateFoot(dt, input, lx, ly);
-    if (input.hit('KeyF')) this.inCar ? this.exitCar() : this.tryEnter();
+    if (input.hit('KeyF')) this.inCar ? this.startExit() : this.tryEnter();
     if (input.hit('KeyE')) this.interact();
     this.hp = Math.min(100, this.hp + dt * 0.6);
   }
@@ -134,7 +147,45 @@ export class Player {
     cam.fov = damp(cam.fov, (run && moving > 5 ? 80 : 74) * (1 - this.aimT * 0.38), 10, dt);
     document.body.classList.toggle('aiming', this.aimT > 0.5);
     cam.updateProjectionMatrix();
-    this.updateGun(dt, input, moving);
+    if (input.hit('Digit1') && this.weapon !== 'fists') { this.weapon = 'fists'; this.switchT = 0.3; }
+    if (input.hit('Digit2') && this.weapon !== 'pistol') { this.weapon = 'pistol'; this.switchT = 0.3; }
+    if (this.weapon === 'fists') this.updateFists(dt, input, moving);
+    else { this.bareHolder.visible = false; this.updateGun(dt, input, moving); }
+  }
+
+  // 素手: 構えた両腕。左クリックで左右交互にパンチ
+  updateFists(dt, input, moving) {
+    const g = this.game;
+    this.gunHolder.visible = false;
+    this.bareHolder.visible = true;
+    this.switchT = Math.max(0, (this.switchT ?? 0) - dt);
+    this.punchT = Math.max(0, this.punchT - dt);
+    if (input.clicked && this.punchT <= 0.05) {
+      this.punchT = 0.38; this.punchSide *= -1; this.punchHit = false;
+      g.audio.burst(0.12, 'bandpass', 900, 0.25, 0, 1.5);
+    }
+    // パンチの当たり判定(振り切る瞬間に 1.6m 以内・前方の人)
+    const k = this.punchT > 0 ? Math.sin((1 - this.punchT / 0.38) * Math.PI) : 0;
+    if (k > 0.8 && !this.punchHit) {
+      this.punchHit = true;
+      const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
+      for (const p of g.peds.list) {
+        if (p.state === 'down') continue;
+        const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z, d = Math.hypot(dx, dz);
+        if (d < 1.7 && (dx * fx + dz * fz) / (d || 1) > 0.6) {
+          g.audio.thud(p.pos); g.hud.hitmark(); g.shake(0.15);
+          p.hp -= 12;
+          if (p.hp <= 0) { p.knock(fx, fz, 3); g.onPedHit(p, 'fist'); }
+          else p.scare(this.pos.x, this.pos.z, 1);
+          if (g.peds.list.some((q) => q !== p && q.state !== 'down' && q.pos.distanceTo(this.pos) < 30) && g.wanted.stars < 1) g.wanted.crime(1, '暴行の通報');
+          break;
+        }
+      }
+    }
+    const sway = Math.sin(this.bob) * 0.01 * Math.min(1, moving / 4);
+    const sw = this.switchT / 0.3;
+    this.bareHolder.position.set(sway + this.punchSide * k * 0.05, -0.31 - Math.abs(Math.cos(this.bob)) * 0.01 - sw * 0.3 + k * 0.04, 0.02 - k * 0.22);
+    this.bareHolder.rotation.set(0.12 + k * 0.1, this.punchSide * k * 0.15, 0);
   }
 
   updateGun(dt, input, moving) {
@@ -237,7 +288,114 @@ export class Player {
     }
     if (!best) return;
     if (best.driver === 'police' && Math.abs(best.speed) > 2) return;
-    this.enterCar(best);
+    this.startEnter(best);
+  }
+
+  // ---------------------------------------------------------------- 乗り降りのアニメーション
+  // 車のローカル座標(右 = +X, 前 = -Z)をワールドへ
+  carPoint(car, lx, ly, lz) {
+    car.obj.updateMatrixWorld();
+    return new THREE.Vector3(lx, ly, lz).applyMatrix4(car.obj.matrixWorld);
+  }
+  makeDoor(car) {
+    const s = car.spec, e = s.eye;
+    const H = Math.max(0.9, e[1] - 0.25), L = Math.min(1.25, s.L * 0.26);
+    const door = new THREE.Group();
+    const paint = new THREE.MeshPhysicalMaterial({ color: car.mat.userData.u.uPaint.value.clone(), roughness: 0.22, metalness: 0.45, clearcoat: 1, clearcoatRoughness: 0.06 });
+    const lower = new THREE.Mesh(new THREE.BoxGeometry(0.06, H * 0.58, L), paint);
+    lower.position.set(0, 0.35 + H * 0.29, L / 2);
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(0.03, H * 0.38, L * 0.92), new THREE.MeshPhysicalMaterial({ color: 0x1a2228, roughness: 0.05, metalness: 0.3, transparent: true, opacity: 0.55 }));
+    glass.position.set(0, 0.35 + H * 0.58 + H * 0.19, L / 2 + 0.03);
+    const inner = new THREE.Mesh(new THREE.BoxGeometry(0.02, H * 0.55, L * 0.95), new THREE.MeshStandardMaterial({ color: 0x1b1c1f, roughness: 0.8 }));
+    inner.position.set(-0.04, 0.35 + H * 0.29, L / 2);
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.03, 0.14), new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 1, roughness: 0.2 }));
+    handle.position.set(0.035, 0.35 + H * 0.5, L * 0.8);
+    door.add(lower, glass, inner, handle);
+    door.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.layers.set(1); } });
+    door.position.set(s.W / 2 + 0.02, 0, e[2] - 0.75); // 前側の蝶番
+    car.obj.add(door);
+    return door;
+  }
+  startEnter(car) {
+    const g = this.game;
+    // 運転手が乗っていれば先に引きずり下ろす(車は止まる)
+    if (car.driver === 'npc' || car.driver === 'police') this.dragOut(car);
+    car.driver = null;
+    const cam = g.camera;
+    this.gunHolder.visible = false;
+    this.trans = { type: 'enter', t: 0, dur: 1.5, car, p0: cam.position.clone(), yaw0: this.yaw, pitch0: this.pitch, door: this.makeDoor(car), sounds: {} };
+  }
+  startExit() {
+    const g = this.game, car = this.inCar;
+    if (Math.abs(car.speed) > 9) return; // 速すぎると降りられない
+    const r = new THREE.Vector3(Math.cos(car.yaw), 0, -Math.sin(car.yaw));
+    let out = null;
+    for (const side of [1, -1]) {
+      const p = { x: car.pos.x + r.x * 1.8 * side, z: car.pos.z + r.z * 1.8 * side };
+      const q = { ...p };
+      g.city.colliders.resolve(q, 0.35);
+      if (Math.hypot(q.x - p.x, q.z - p.z) < 0.2 || side === -1) { out = q; break; }
+    }
+    car.driver = null;
+    this.headlight.intensity = 0;
+    document.body.classList.remove('driving');
+    this.trans = { type: 'exit', t: 0, dur: 1.3, car, out, door: this.makeDoor(car), sounds: {} };
+  }
+  updateTrans(dt) {
+    const g = this.game, T = this.trans, car = T.car, cam = g.camera, s = car.spec, e = s.eye;
+    T.t += dt / T.dur;
+    const t = Math.min(1, T.t);
+    const sm = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
+    const lerpAng = (a, b, k) => a + wrapAngle(b - a) * k;
+    car.drive(dt, 0, 0, true); car.sync(dt);
+    const seat = this.carPoint(car, e[0], e[1], e[2]);
+    const doorStand = this.carPoint(car, s.W / 2 + 0.85, 1.62, e[2] + 0.25);
+    const faceIn = car.yaw + Math.PI / 2;   // 車の内側(左)を向く
+    let pos, yaw, pitch, open;
+    if (T.type === 'enter') {
+      // 0-0.3: ドアの前へ / 0.15-0.45: ドアを開ける / 0.4-0.8: かがんで座席へ / 0.8-1: 前を向きドアを閉める
+      const k1 = sm(0, 0.3, t), k2 = sm(0.38, 0.8, t);
+      pos = T.p0.clone().lerp(doorStand, k1).lerp(seat, k2);
+      pos.y -= Math.sin(k2 * Math.PI) * 0.35;                         // 頭をかがめる
+      yaw = lerpAng(lerpAng(T.yaw0, faceIn, k1), car.yaw, sm(0.5, 0.9, t));
+      pitch = T.pitch0 * (1 - k1) - 0.25 * Math.sin(k2 * Math.PI) - 0.06 * sm(0.8, 1, t);
+      open = sm(0.12, 0.42, t) * (1 - sm(0.8, 0.97, t));
+      if (t > 0.14 && !T.sounds.open) { T.sounds.open = 1; g.audio.door(); }
+      if (t > 0.95 && !T.sounds.close) { T.sounds.close = 1; g.audio.door(); g.shake(0.08); }
+    } else {
+      const out = new THREE.Vector3(T.out.x, 1.62, T.out.z);
+      // 0-0.25: ドアを開ける / 0.15-0.6: 体を外へ出す / 0.55-0.85: 立ち上がって離れる / 0.85-1: ドアを閉める
+      const k1 = sm(0.15, 0.6, t), k2 = sm(0.55, 0.85, t);
+      pos = seat.clone().lerp(doorStand, k1).lerp(out, k2);
+      pos.y -= Math.sin(k1 * Math.PI) * 0.3;
+      yaw = lerpAng(lerpAng(car.yaw, car.yaw - Math.PI / 2, k1), car.yaw, k2 * 0.7);
+      pitch = -0.2 * Math.sin(k1 * Math.PI);
+      open = sm(0.0, 0.25, t) * (1 - sm(0.82, 0.98, t));
+      if (!T.sounds.open) { T.sounds.open = 1; g.audio.door(); }
+      if (t > 0.6 && !T.sounds.out) { T.sounds.out = 1; car.obj.remove(this.cockpit); }
+      if (t > 0.96 && !T.sounds.close) { T.sounds.close = 1; g.audio.door(); }
+    }
+    T.door.rotation.y = open * 1.15;
+    cam.position.copy(pos);
+    cam.rotation.set(pitch, yaw, 0, 'YXZ');
+    this.yaw = yaw; this.pitch = pitch;
+    this.pos.set(pos.x, 0, pos.z);
+    if (t >= 1) {
+      car.obj.remove(T.door);
+      this.trans = null;
+      if (T.type === 'enter') this.enterCar(car);
+      else this.finishExit(car, T.out);
+    }
+  }
+  dragOut(car) {
+    const g = this.game, prev = car.driver;
+    const r = new THREE.Vector3(Math.cos(car.yaw), 0, -Math.sin(car.yaw));
+    const p = g.peds.spawnAt(car.pos.x + r.x * 1.6, car.pos.z + r.z * 1.6);
+    if (prev === 'police') p.obj.traverse((m) => { if (m.isMesh && m.material.name === 'Jacket') m.material.color.set(0x1d2c55); });
+    p.scare(this.pos.x, this.pos.z, 1);
+    g.wanted.crime(prev === 'police' ? 3 : 1, prev === 'police' ? 'パトカー強奪' : '車両強盗');
+    car.ai = null;
+    car.vel.set(-Math.sin(car.yaw) * car.speed, -Math.cos(car.yaw) * car.speed);
   }
 
   enterCar(car) {
@@ -265,6 +423,15 @@ export class Player {
     document.body.classList.add('driving');
     g.hud.toast(`${car.spec.name}に乗った`);
     g.onEnterCar(car);
+  }
+
+  finishExit(car, out) {
+    const g = this.game;
+    this.pos.set(out.x, 0, out.z);
+    car.obj.remove(this.cockpit);
+    this.inCar = null;
+    this.vx = this.vz = 0;
+    g.camera.fov = 74; g.camera.updateProjectionMatrix();
   }
 
   exitCar() {
