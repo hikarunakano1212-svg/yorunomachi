@@ -96,6 +96,14 @@ Mixamo（https://www.mixamo.com）の人物と動きを変換して、歩行者�
 
 `mx_*.glb` があれば、歩行者はそれを使います。無ければ Blender で作った人物を使います。鞄を持って歩く動きの人には、ゲーム側でビジネスバッグを持たせています。
 
+## 一人称の右腕
+
+`blender/fp_arm.py` で、Mixamo の人物（Ch33）から右の前腕と手だけを切り出しています。スーツの袖と実写風の手のテクスチャを、そのまま使っています。指の骨を曲げて拳銃を握る形にし、そのポーズのまま固めて `assets/models/fp_arm.glb` に書き出します。
+
+```bash
+AXIS=X python blender/fp_arm.py assets/source/mixamo/Ch33_nonPBR.fbx
+```
+
 ## Poly Haven の素材を使う
 
 Poly Haven（https://polyhaven.com、CC0）の `.blend` を `blender/polyhaven.py` で glb に変換しています。

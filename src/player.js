@@ -36,6 +36,21 @@ export class Player {
       ph.position.set(-(box.min.x + box.max.x) / 2, 0.079 - box.max.y, 0.08 - box.max.z);
       ph.traverse((o) => { if (o.isMesh) { o.frustumCulled = false; o.material = o.material.clone(); o.material.envMapIntensity = 1.4; } });
       this.gun.add(ph);
+      // Mixamo の人物から切り出した右腕(スーツの袖・実写風の手)でグリップを握る
+      if (game.assets.has('fp_arm')) {
+        const arm = game.assets.clone('fp_arm');
+        const oldHand = this.gun.getObjectByName('HandMesh');
+        if (oldHand) oldHand.visible = false;
+        const pb = new THREE.Box3().setFromObject(ph);
+        const grip = new THREE.Vector3(0, pb.min.y + 0.035, pb.max.z - 0.035);
+        arm.rotation.set(-0.35, 0.08, -Math.PI / 2, 'ZXY');   // 手のひらを左へ向け、前腕を下から添える
+        arm.updateMatrixWorld(true);
+        const fist = new THREE.Vector3(0, -0.025, -0.075).applyEuler(arm.rotation);
+        arm.position.copy(grip).sub(fist).add(new THREE.Vector3(-0.03, 0.015, -0.005)); // 指がグリップを包む位置へ微調整
+        arm.traverse((o) => { if (o.isMesh) { o.frustumCulled = false; o.material = o.material.clone(); } });
+        this.gun.add(arm);
+        this.fpArm = arm;
+      }
     }
     // 路面反射に映り込まないようレイヤー1へ
     this.gun.traverse((o) => o.layers.set(1));
@@ -142,7 +157,7 @@ export class Player {
     const sway = Math.sin(this.bob) * 0.012 * Math.min(1, moving / 4) * (1 - k * 0.8);
     // 腰だめ位置と照準位置(照星と照門の上端を画面中央に合わせる: 0.08 × 0.85)
     const hip = [0.16, -0.15 - Math.abs(Math.cos(this.bob)) * 0.008, -0.36];
-    const ads = [-0.019, -0.055, -0.27];
+    const ads = [0.003, -0.068, -0.27];
     this.gunHolder.position.set(hip[0] + (ads[0] - hip[0]) * k + sway, hip[1] + (ads[1] - hip[1]) * k - rl * 0.15, hip[2] + (ads[2] - hip[2]) * k + this.recoil * 0.05);
     this.gunHolder.rotation.set(this.recoil * (0.25 - k * 0.15) - rl * 0.6, 0.04 * (1 - k), rl * 0.4);
     this.muzzle.position.set(0, 0.06, -0.2);

@@ -7,7 +7,7 @@ const NAMES = ['car_sedan', 'car_taxi', 'car_kei', 'car_van', 'car_truck', 'car_
   'person_m', 'person_f', 'pistol', 'signal', 'tree', 'lamp'];
 // Mixamo の人物(あれば使う。無ければ Blender 製の人物で代用)
 export const MX_PEOPLE = ['mx_ch12', 'mx_ch23', 'mx_ch33', 'mx_remy'];
-const OPTIONAL = [...MX_PEOPLE, 'ph_pistol', 'ph_fence'];
+const OPTIONAL = [...MX_PEOPLE, 'ph_pistol', 'ph_fence', 'fp_arm'];
 
 export async function loadAssets(base = 'assets/models/', onProgress = () => {}) {
   const loader = new GLTFLoader();
