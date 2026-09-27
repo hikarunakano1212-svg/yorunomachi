@@ -291,7 +291,7 @@ export function makeGlowSprite() {
 // 1枚 = 横 24m × 縦 32m(8階分, 階高4m)。map / emissive / roughness(G)
 export const FW = 24, FH = 32;
 export function makeFacade2(style) {
-  const S = 1024;
+  const S = 2048; // 外壁は 24m 幅に 2048px(約 85px/m)
   const [c, g] = canvas(S, S);
   const [e, ge] = canvas(S, S);
   const [r, gr] = canvas(S, S);

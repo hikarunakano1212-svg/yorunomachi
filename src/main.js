@@ -29,7 +29,8 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPrefer
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.9;
 // 画面の解像度: 高画質(既定)は端末の解像度そのまま(最大2倍)。軽量モードだけ下げる
-const MAX_PR = params.get('q') === 'low' ? 0.85 : Math.min(devicePixelRatio, 2);
+// 高画質では画面の1.5倍の細かさで描いて縮小する(スーパーサンプリング)。重いときは自動で下げる
+const MAX_PR = params.get('q') === 'low' ? 0.85 : Math.min(Math.max(devicePixelRatio, 1) * 1.5, 2.25);
 const MIN_PR = params.get('q') === 'low' ? 0.7 : Math.min(devicePixelRatio, 1);
 let pixelRatio = MAX_PR;
 renderer.setPixelRatio(pixelRatio);
