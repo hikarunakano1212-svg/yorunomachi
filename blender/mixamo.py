@@ -126,7 +126,7 @@ def main():
         bpy.ops.object.select_all(action='SELECT')
         bpy.ops.export_scene.gltf(filepath=path, export_format='GLB', export_animations=True,
                                   export_animation_mode='NLA_TRACKS', export_skins=True,
-                                  export_image_format='JPEG', export_jpeg_quality=82, export_yup=True)
+                                  export_image_format='WEBP', export_image_quality=80, export_yup=True)
         print(f'  -> {os.path.relpath(path, ROOT)} ({os.path.getsize(path) / 1e6:.1f} MB)')
 
 
