@@ -9,3 +9,10 @@ assets/source/mixamo/Remy*.fbx
 assets/source/fps-arms/
 assets/source/fps-arms-rigged/
 assets/source/fps-pistol/
+
+# rocket/: 連番画像・テスト静止画・合成した音は再生成できるので入れない
+rocket/out/frames/
+rocket/out/test/
+rocket/out/*.wav
+rocket/out/*.txt
+rocket/out/*.log
