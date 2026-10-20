@@ -1,0 +1,477 @@
+<title>夜の射点 3D</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Share+Tech+Mono&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap">
+<style>
+/* レイアウト: 画面いっぱいの 3D、その上に図面の表題欄のような札と、下に操作の帯。夜の制御室の配色で固定 */
+:root {
+  --bg: #050b16;
+  --panel: rgba(6, 16, 30, 0.82);
+  --line: #2fd2c4;
+  --line-dim: rgba(47, 210, 196, 0.35);
+  --fg: #d9f6f2;
+  --muted: #86aab0;
+  --red: #ff5546;
+  --f-head: "Zen Kaku Gothic New", "BIZ UDPGothic", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  --f-body: "BIZ UDPGothic", "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif;
+  --f-mono: "Share Tech Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); overflow: hidden; }
+#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+.hud {
+  position: fixed; inset: 0; pointer-events: none;
+  display: grid; grid-template-rows: auto 1fr auto auto;
+  padding-top: max(12px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  gap: 12px;
+}
+.top { grid-row: 1; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.plate, .info, .bar { pointer-events: auto; background: var(--panel); border: 1px solid var(--line-dim); backdrop-filter: blur(6px); }
+
+/* 表題欄 */
+.plate { display: grid; grid-template-columns: auto auto; font-size: 12px; min-width: 0; }
+.plate > div { padding: 6px 10px; border-right: 1px solid var(--line-dim); border-bottom: 1px solid var(--line-dim); }
+.plate > div:nth-child(2n) { border-right: 0; }
+.plate .k { color: var(--muted); letter-spacing: .08em; }
+.plate .v { font-family: var(--f-mono); color: var(--fg); }
+.plate .name { grid-column: 1 / -1; border-right: 0; padding: 8px 10px 6px; }
+.plate .name b { font-family: var(--f-head); font-weight: 700; font-size: 20px; letter-spacing: .12em; display: block; text-wrap: balance; }
+.plate .name span { color: var(--muted); font-size: 11px; }
+.plate .note { grid-column: 1 / -1; border: 0; color: var(--red); font-size: 11px; letter-spacing: .06em; }
+
+/* 部品の札 */
+.info { width: min(300px, 100%); padding: 10px 12px; min-width: 0; }
+.info .k { color: var(--muted); font-size: 11px; letter-spacing: .12em; }
+.info h2 { margin: 2px 0 4px; font: 700 18px/1.3 var(--f-head); letter-spacing: .06em; }
+.info p { margin: 0; font-family: var(--f-mono); font-size: 13px; line-height: 1.5; color: var(--line); overflow-wrap: anywhere; }
+.info p.hint { font-family: var(--f-body); color: var(--muted); font-size: 12px; }
+
+/* カウントダウン */
+.count { grid-row: 3; align-self: end; justify-self: start; pointer-events: none; font-family: var(--f-mono); }
+.count small { display: block; color: var(--muted); letter-spacing: .3em; font-size: 11px; border-bottom: 1px solid var(--line); padding-bottom: 3px; margin-bottom: 4px; width: 9em; }
+.count strong { font-size: clamp(28px, 6vw, 48px); font-weight: 400; color: var(--line); letter-spacing: .08em; }
+
+/* 操作の帯 */
+.bar { grid-row: 4; align-self: end; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 8px; justify-self: center; max-width: 100%; }
+.bar button {
+  font: 700 13px/1 var(--f-body); letter-spacing: .06em; color: var(--fg);
+  background: transparent; border: 1px solid var(--line-dim); padding: 0 14px; min-height: 40px; cursor: pointer;
+}
+.bar button:hover { border-color: var(--line); }
+.bar button:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+.bar button[aria-pressed="true"] { background: var(--line); color: var(--bg); border-color: var(--line); }
+.bar button.go { border-color: var(--red); color: var(--red); }
+.bar button.go:disabled { opacity: .4; cursor: default; }
+.seg { display: flex; }
+.seg button + button { border-left: 0; }
+
+.loading { position: fixed; inset: 0; display: grid; place-items: center; font-family: var(--f-mono); color: var(--line); letter-spacing: .2em; pointer-events: none; }
+.err { color: var(--red); font-family: var(--f-body); letter-spacing: 0; max-width: 32em; text-align: center; padding: 0 16px; }
+
+@media (max-width: 560px) {
+  .plate .name b { font-size: 17px; }
+  .info { width: 100%; }
+  .bar button { padding: 0 10px; font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { .bar button { transition: none; } }
+</style>
+
+<canvas id="c" aria-label="射点とロケットの 3D モデル。ドラッグで回転、ピンチやホイールで拡大縮小。"></canvas>
+<div class="loading" id="loading">モデルを読み込み中…</div>
+
+<div class="hud">
+  <div class="top">
+    <div class="plate">
+      <div class="name"><b>夜の射点 3D</b><span>架空大型ロケット 射点計画</span></div>
+      <div class="k">図番</div><div class="v">LP-3D</div>
+      <div class="k">単位</div><div class="v">m(実寸)</div>
+      <div class="k">寸法の元</div><div class="v">geometry.py</div>
+      <div class="note">架空の機体・射場のイメージで、実在のものではない</div>
+    </div>
+    <div class="info" id="info" aria-live="polite">
+      <div class="k">部品</div>
+      <h2 id="infoName">—</h2>
+      <p class="hint" id="infoSpec">部品をタップすると、名前と寸法が出ます。寸法は図面 LP-001・LP-002・RK-001 と同じ値です。</p>
+    </div>
+  </div>
+  <div class="count" id="count" hidden><small>COUNTDOWN</small><strong id="countText">T−3</strong></div>
+  <div class="bar" role="toolbar" aria-label="操作">
+    <div class="seg" role="group" aria-label="時間帯">
+      <button id="night" aria-pressed="true">夜</button>
+      <button id="day" aria-pressed="false">昼</button>
+    </div>
+    <button id="arms" aria-pressed="false">アームを離す</button>
+    <button id="launch" class="go">打ち上げ</button>
+    <button id="reset">最初に戻す</button>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+
+const $ = (id) => document.getElementById(id);
+const canvas = $("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38, 1, 0.5, 8000);
+const HOME = { pos: new THREE.Vector3(120, 30, 230), target: new THREE.Vector3(0, 40, 0) };
+camera.position.copy(HOME.pos);
+const controls = new OrbitControls(camera, canvas);
+controls.target.copy(HOME.target);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.495;
+controls.minDistance = 15;
+controls.maxDistance = 1200;
+
+// 座標の変換: Blender(x 東, y 北, z 上) → three(x, z, -y)
+const b2t = (x, y, z) => new THREE.Vector3(x, z, -y);
+
+// --- 空(夜は星、昼は青空) -------------------------------------------------
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false,
+  uniforms: { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() } },
+  vertexShader: "varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
+  fragmentShader: "uniform vec3 top; uniform vec3 horizon; varying vec3 vP; void main(){ float h = clamp(vP.y,0.0,1.0); gl_FragColor = vec4(mix(horizon, top, pow(h,0.5)),1.0); }",
+});
+const sky = new THREE.Mesh(new THREE.SphereGeometry(4000, 32, 16), skyMat);
+scene.add(sky);
+const starGeo = new THREE.BufferGeometry();
+{
+  const n = 2200, p = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const u = Math.random(), v = Math.random() * 0.95 + 0.03;
+    const th = u * Math.PI * 2, ph = Math.acos(v);
+    p.set([3500 * Math.sin(ph) * Math.cos(th), 3500 * Math.cos(ph), 3500 * Math.sin(ph) * Math.sin(th)], i * 3);
+  }
+  starGeo.setAttribute("position", new THREE.BufferAttribute(p, 3));
+}
+const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xcfe6ff, size: 2.2, sizeAttenuation: false }));
+scene.add(stars);
+
+// --- 光 ---------------------------------------------------------------------
+const hemi = new THREE.HemisphereLight(0x8fb4ff, 0x10140c, 0.3);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xa9c2ff, 0.4);   // 夜は月(北の低い空)、昼は太陽
+scene.add(sun, sun.target);
+const spots = [];
+// 照明塔の灯具の位置(geometry.py の LIGHT_TOWERS、高さ 45 m の灯具の中心)
+for (const [x, y] of [[-70, -28], [70, -28], [-62, 66], [62, 66]]) {
+  const s = new THREE.SpotLight(0xffe9cc, 0, 0, THREE.MathUtils.degToRad(28), 0.45, 2);
+  s.position.copy(b2t(x * 0.985, y * 0.985, 43.4));
+  s.target.position.set(0, 33, 0);
+  scene.add(s, s.target);
+  spots.push(s);
+}
+const flameLight = new THREE.PointLight(0xff8a3d, 0, 0, 2);
+scene.add(flameLight);
+
+// --- 光のにじみ ---------------------------------------------------------------
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.5, 0.35, 0.92);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// --- モデル -------------------------------------------------------------------
+let rig = null, arms = [], beaconMats = [], lampMats = [], winMats = [], launchK = { a: 14, j: 6 }, flameDefs = [];
+const pickables = [];
+// launch_pad.glb を読む。配れない場所では、同じ中身を Base64 にした launch_pad_glb.json を読む
+async function loadModel(onLoad, onProgress, onError) {
+  const loader = new GLTFLoader();
+  try {
+    const r = await fetch("launch_pad.glb");
+    if (!r.ok) throw new Error(r.status);
+    return loader.parse(await r.arrayBuffer(), "", onLoad, onError);
+  } catch (e) {
+    try {
+      const j = await (await fetch("launch_pad_glb.json")).json();
+      const bin = Uint8Array.from(atob(j.glb_base64), (c) => c.charCodeAt(0));
+      loader.parse(bin.buffer, "", onLoad, onError);
+    } catch (e2) { onError(e2); }
+  }
+}
+loadModel((gltf) => {
+  const root = gltf.scene;
+  scene.add(root);
+  root.traverse((o) => {
+    if (o.name === "RocketRig") {
+      rig = o;
+      const e = o.userData;
+      if (e.launch_accel) launchK = { a: e.launch_accel, j: e.launch_jerk };
+      if (e.flames) for (let i = 0; i < e.flames.length; i += 5) flameDefs.push(e.flames.slice(i, i + 5));
+    }
+    if (/^arm_hinge\d/.test(o.name)) arms.push({ node: o, base: o.rotation.y, idx: +o.name.slice(-1) });
+    if (o.isMesh) {
+      pickables.push(o);
+      const m = o.material;
+      const n = m.name || "";
+      if (n.includes("beacon_red") && !beaconMats.includes(m)) beaconMats.push(m);
+      if (n.includes("lamp_panel") && !lampMats.includes(m)) lampMats.push(m);
+      if (n.includes("windows") && !winMats.includes(m)) winMats.push(m);
+      if (n.includes("sea")) { m.roughness = 0.35; m.metalness = 0.0; }
+    }
+  });
+  arms.sort((p, q) => p.idx - q.idx);
+  buildFlames();
+  setMode("night");
+  $("loading").hidden = true;
+}, (ev) => {
+  if (ev.total) $("loading").textContent = `モデルを読み込み中… ${Math.round(ev.loaded / ev.total * 100)}%`;
+}, () => {
+  $("loading").innerHTML = '<p class="err">モデル(launch_pad.glb)を読み込めませんでした。ページと同じ場所にファイルがあるか確認してください。</p>';
+});
+
+// --- 炎(発光する円錐) ---------------------------------------------------------
+const flames = [];
+function buildFlames() {
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    uniforms: { k: { value: 0 } },
+    vertexShader: "varying float vU; void main(){ vU = -position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
+    fragmentShader: `uniform float k; varying float vU;
+      void main(){
+        vec3 c = mix(vec3(1.0,0.93,0.78), vec3(1.0,0.42,0.08), smoothstep(0.0,0.55,vU));
+        c = mix(c, vec3(0.5,0.08,0.01), smoothstep(0.55,1.0,vU));
+        float a = pow(1.0 - clamp(vU,0.0,1.0), 1.3) * k;
+        gl_FragColor = vec4(c * a * 1.6, a);
+      }`,
+  });
+  for (const [x, y, z, r, srb] of flameDefs) {
+    const len = srb ? 34 : 22;
+    const g = new THREE.CylinderGeometry(r * 0.95, srb ? 3.4 : 2.0, 1, 24, 8, true);
+    g.translate(0, -0.5, 0);           // 上端がノズル出口、下へ長さ 1
+    const f = new THREE.Mesh(g, mat.clone());
+    f.position.copy(b2t(x, y, z));
+    f.userData = { len, srb: !!srb };
+    f.scale.set(1, 0.001, 1);
+    f.visible = false;
+    rig.add(f);
+    flames.push(f);
+  }
+}
+
+// --- 噴煙(ぼかした円のスプライト) -----------------------------------------------
+const puffTex = (() => {
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d");
+  const grad = g.createRadialGradient(64, 64, 4, 64, 64, 62);
+  grad.addColorStop(0, "rgba(255,255,255,1)"); grad.addColorStop(0.55, "rgba(255,255,255,.55)"); grad.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+const puffs = [];
+const smokeGroup = new THREE.Group();
+scene.add(smokeGroup);
+function spawn(pos, vel, size, grow, life) {
+  let p = puffs.find((q) => !q.alive);
+  if (!p) {
+    if (puffs.length > 420) return;
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTex, transparent: true, depthWrite: false }));
+    smokeGroup.add(s);
+    p = { s };
+    puffs.push(p);
+  }
+  Object.assign(p, { alive: true, age: 0, life, vel, size, grow });
+  p.s.position.copy(pos);
+  p.s.visible = true;
+}
+
+// --- 状態 ---------------------------------------------------------------------
+let mode = "night", armsOut = false, armT = 0, seq = null;   // seq: 打ち上げの進行
+const clock = new THREE.Clock();
+const COUNT = [["T−3", 0], ["T−2", 1], ["T−1", 2], ["IGNITION", 3], ["LIFTOFF", 3.8]];
+const T_IGN = 3, T_LIFT = 3.8;
+
+function setMode(m) {
+  mode = m;
+  $("night").setAttribute("aria-pressed", m === "night");
+  $("day").setAttribute("aria-pressed", m === "day");
+  const night = m === "night";
+  skyMat.uniforms.top.value.set(night ? 0x020611 : 0x3f7fd0);
+  skyMat.uniforms.horizon.value.set(night ? 0x0c1a33 : 0xbfd8ee);
+  stars.visible = night;
+  hemi.intensity = night ? 0.35 : 1.4;
+  hemi.color.set(night ? 0x8fb4ff : 0xdceeff);
+  sun.intensity = night ? 0.45 : 3.0;
+  sun.color.set(night ? 0xa9c2ff : 0xfff3e2);
+  sun.position.copy(night ? b2t(-260, 420, 160) : b2t(300, -250, 420));
+  for (const s of spots) s.intensity = night ? 5500 : 0;
+  for (const mt of lampMats) mt.emissiveIntensity = night ? 6 : 0.2;
+  for (const mt of winMats) mt.emissiveIntensity = night ? 2 : 0;
+  renderer.toneMappingExposure = night ? 1.0 : 0.9;
+  bloom.strength = night ? 0.5 : 0.1;
+}
+
+function swingArms(out) {
+  armsOut = out;
+  $("arms").setAttribute("aria-pressed", out);
+  $("arms").textContent = out ? "アームを戻す" : "アームを離す";
+}
+
+function rise(t) {   // geometry.py の上昇の式: 1/2 a t^2 + 1/6 j t^3
+  return t > 0 ? 0.5 * launchK.a * t * t + launchK.j * t * t * t / 6 : 0;
+}
+
+function startLaunch() {
+  if (seq || !rig) return;
+  swingArms(true);
+  seq = { t: armT < 1 ? -1.6 : 0 };     // アームが付いていれば、離れるのを待ってから数える
+  $("launch").disabled = true;
+}
+
+function resetAll() {
+  seq = null;
+  $("count").hidden = true;
+  $("launch").disabled = false;
+  swingArms(false);
+  armT = 0;
+  if (rig) rig.position.set(0, 0, 0);
+  for (const f of flames) { f.visible = false; f.scale.y = 0.001; }
+  for (const p of puffs) { p.alive = false; p.s.visible = false; }
+  flameLight.intensity = 0;
+  camera.position.copy(HOME.pos);
+  controls.target.copy(HOME.target);
+}
+
+$("night").onclick = () => setMode("night");
+$("day").onclick = () => setMode("day");
+$("arms").onclick = () => { if (!seq) swingArms(!armsOut); };
+$("launch").onclick = startLaunch;
+$("reset").onclick = resetAll;
+
+// --- 部品をタップして名前と寸法を出す ---------------------------------------------
+const ray = new THREE.Raycaster();
+const down = new THREE.Vector2();
+const box = new THREE.BoxHelper(undefined, 0x2fd2c4);
+box.visible = false;
+scene.add(box);
+canvas.addEventListener("pointerdown", (e) => down.set(e.clientX, e.clientY));
+canvas.addEventListener("pointerup", (e) => {
+  if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return;
+  const r = canvas.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), camera);
+  const hit = ray.intersectObjects(pickables, false)[0];
+  let o = hit && hit.object;
+  while (o && !o.userData.label) o = o.parent;
+  if (!o) { box.visible = false; $("infoName").textContent = "—"; return; }
+  $("infoName").textContent = o.userData.label;
+  const spec = $("infoSpec");
+  spec.textContent = o.userData.spec || "—";
+  spec.className = "";
+  const big = /^(ground|hill|sea|slope)/.test(o.name);
+  box.visible = !big;
+  if (!big) box.setFromObject(o);
+});
+
+// --- 毎フレーム -------------------------------------------------------------------
+function resize() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  renderer.setSize(w, h, false);
+  composer.setSize(w, h);
+  bloom.setSize(w, h);
+  camera.aspect = w / h;
+  camera.fov = w < h ? 62 : 40;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+resize();
+
+const tmp = new THREE.Vector3();
+function tick() {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const now = clock.elapsedTime;
+  // 航空障害灯の明滅(1.1 秒周期)
+  const on = (now % 1.1) < 0.45;
+  for (const mt of beaconMats) mt.emissiveIntensity = on ? 8 : 0.3;
+  // アーム(北へ 80°、上から順に少しずつずらす)
+  armT = THREE.MathUtils.clamp(armT + (armsOut ? dt : -dt) / 1.4, 0, 1);
+  for (const a of arms) {
+    const k = THREE.MathUtils.clamp(armT * 1.5 - (2 - a.idx) * 0.18, 0, 1);
+    const e = k * k * (3 - 2 * k);
+    a.node.rotation.y = a.base - THREE.MathUtils.degToRad(80) * e;
+  }
+  // 打ち上げ
+  if (seq && rig) {
+    seq.t += dt;
+    const t = seq.t;
+    const cd = $("count");
+    cd.hidden = t < 0 || t > T_LIFT + 3.5;
+    let label = "";
+    for (const [s, at] of COUNT) if (t >= at) label = s;
+    $("countText").textContent = label;
+    const y = rise(t - T_LIFT);
+    rig.position.y = y;
+    for (const f of flames) {
+      const ton = f.userData.srb ? T_LIFT - 0.1 : T_IGN;
+      const g = THREE.MathUtils.clamp((t - ton) / 0.35, 0, 1);
+      f.visible = g > 0;
+      const j = 1 + (Math.random() - 0.5) * 0.12;
+      f.scale.set(j, Math.max(0.001, f.userData.len * g * j), j);
+      f.material.uniforms.k.value = g;
+    }
+    const power = t < T_IGN ? 0 : t < T_LIFT ? 0.4 : 1;
+    flameLight.intensity = power * 9e5 * (1 + (Math.random() - 0.5) * 0.2);
+    flameLight.position.set(0, y + 6, 0);
+    // 噴煙: 排煙溝の出口、発射台のまわり、上昇する機体の後ろ
+    if (t > T_IGN + 0.2) {
+      for (let i = 0; i < 3; i++) {
+        const ang = -Math.PI / 2 + (Math.random() - 0.5) * 1.1;
+        spawn(b2t((Math.random() - 0.5) * 10, -70, -2), b2t(Math.cos(ang) * 14, Math.sin(ang) * 14, 2 + Math.random() * 3), 6, 7, 6);
+      }
+    }
+    if (t > T_LIFT - 0.2 && t < T_LIFT + 6) {
+      for (let i = 0; i < 3; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        spawn(b2t(Math.cos(ang) * 15, Math.sin(ang) * 13, 3), b2t(Math.cos(ang) * 10, Math.sin(ang) * 9, 1.5 + Math.random() * 2), 6, 5, 5);
+      }
+    }
+    if (t > T_LIFT + 0.4 && y > 6) {
+      for (let i = 0; i < 2; i++) {
+        spawn(tmp.set((Math.random() - 0.5) * 3, y + 4 + Math.random() * 2, (Math.random() - 0.5) * 3).clone(),
+          new THREE.Vector3((Math.random() - 0.5) * 2 + 1.2, -3, (Math.random() - 0.5) * 2), 3, 3, 7);
+      }
+    }
+    // 視点を少しずつロケットへ寄せて、画面から外れないようにする
+    controls.target.y += (Math.max(36, y * 0.7 + 30) - controls.target.y) * 0.03;
+    if (t > T_LIFT + 14) { seq.done = true; $("launch").disabled = false; seq = null; $("count").hidden = true; }
+  }
+  for (const p of puffs) {
+    if (!p.alive) continue;
+    p.age += dt;
+    if (p.age > p.life) { p.alive = false; p.s.visible = false; continue; }
+    p.vel.multiplyScalar(1 - dt * 0.6);
+    p.s.position.addScaledVector(p.vel, dt);
+    const sz = p.size + p.grow * Math.sqrt(p.age);
+    p.s.scale.set(sz, sz, 1);
+    const u = p.age / p.life;
+    const near = Math.max(0, 1 - p.s.position.distanceTo(flameLight.position) / 45) * (flameLight.intensity > 0 ? 1 : 0);
+    p.s.material.color.setRGB(0.55 + 0.45 * near, 0.55 + 0.25 * near, 0.58 + 0.05 * near);
+    p.s.material.opacity = Math.min(1, p.age * 3) * (1 - u) * (mode === "night" ? 0.75 : 0.9);
+  }
+  controls.update();
+  composer.render();
+  requestAnimationFrame(tick);
+}
+tick();
+</script>

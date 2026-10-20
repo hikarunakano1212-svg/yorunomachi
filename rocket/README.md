@@ -60,6 +60,20 @@ python3 rocket/render.py mux
 | 17.6–20 | 海の上から上昇するロケットを見上げ、タイトル |
 | 20–23.5 | ロゴ |
 
+## 3D モデル(Web で回して見る)
+
+```bash
+/opt/bpyenv/bin/python rocket/export_glb.py      # → rocket/out/launch_pad.glb と rocket/viewer/ へのコピー
+cd rocket/viewer && python -m http.server 8000   # ブラウザで http://localhost:8000 を開く
+```
+
+- 動画と同じ組み立て(`scene.py`)から、射点・ロケット・地形を GLB で書き出す(約 1.4MB)。
+- 動画の演出用マテリアルは、普通の PBR マテリアル(白い機体・鉄骨・コンクリートなど)に付け替える。
+- 部品ごとに名前と寸法(`geometry.py` の値)を glTF の extras に入れてある。ビューアで部品をタップすると表示される。
+- `rocket/viewer/index.html` は Three.js のビューア。回転・拡大、昼と夜の切り替え、アクセスアームの離脱、打ち上げができる。
+- 上昇の式の係数と炎の位置も GLB に入れてあり、打ち上げの動きは動画と同じ式で動く。
+- `.glb` を置けない配信先のために、同じ中身を Base64 にした `launch_pad_glb.json` も出す。
+
 ### 軽い設定にするための工夫
 
 - GPU のないソフトウェア描画では影が一番重いので、影は切っています。夜景なので、影がなくても目立ちません。
